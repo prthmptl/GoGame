@@ -1,0 +1,66 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+!**/src/**/*.jar
+
+# Local config
+local.properties
+gradle.properties.local
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+.kotlin/
+captures/
+.cxx/
+out/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Android build outputs
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+release/
+
+# Native
+.externalNativeBuild/
+.cxx/
+
+# Keystores / signing
+*.jks
+*.keystore
+keystore.properties
+
+# Logs / crash dumps
+*.log
+hs_err_pid*
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Stitch design mockups (not part of the app)
+stitch_weiqi_android_interface/
+stitch_weiqi_android_interface*/
+
+# Temp / backup
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+go_weiqi_android_srs_tdd_continuation.md
+go_weiqi_android_srs_tdd_roadmap.md
