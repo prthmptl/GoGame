@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.GridOn
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.Settings
@@ -21,10 +22,21 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.weiqi.data.SavedGameRepo
+import com.weiqi.data.WeiqiDatabase
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.remember
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -34,8 +46,8 @@ import androidx.navigation.compose.rememberNavController
 import com.weiqi.ui.screens.GameScreen
 import com.weiqi.ui.screens.GameViewModel
 import com.weiqi.ui.screens.HomeScreen
-import com.weiqi.ui.screens.PuzzlesScreen
 import com.weiqi.ui.screens.ReviewScreen
+import com.weiqi.ui.screens.TutorialScreen
 import com.weiqi.ui.screens.SettingsScreen
 import com.weiqi.ui.screens.SetupScreen
 import com.weiqi.ui.theme.WeiqiTheme
@@ -51,7 +63,7 @@ private data class TopTab(val route: String, val label: String, val icon: @Compo
 
 private val topTabs = listOf(
     TopTab("play", "Play") { Icon(Icons.Outlined.GridOn, contentDescription = "Play") },
-    TopTab("puzzles", "Puzzles") { Icon(Icons.Outlined.Extension, contentDescription = "Puzzles") },
+    TopTab("learn", "Learn") { Icon(Icons.Outlined.MenuBook, contentDescription = "Learn") },
     TopTab("review", "Review") { Icon(Icons.Outlined.RateReview, contentDescription = "Review") },
     TopTab("settings", "Settings") { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
 )
@@ -60,7 +72,17 @@ private val topTabs = listOf(
 @Composable
 private fun AppNav() {
     val nav = rememberNavController()
-    val gameVm: GameViewModel = viewModel()
+    val ctx = LocalContext.current
+    val repo = remember(ctx) {
+        SavedGameRepo(WeiqiDatabase.get(ctx).savedGames())
+    }
+    val gameVm: GameViewModel = viewModel(
+        factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                GameViewModel(repo) as T
+        }
+    )
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
@@ -114,12 +136,22 @@ private fun AppNav() {
             modifier = Modifier.padding(padding)
         ) {
             composable("play") {
+                var hasSaved by remember { mutableStateOf(false) }
+                val scope = rememberCoroutineScope()
+                LaunchedEffect(Unit) { hasSaved = repo.loadCurrent() != null }
                 HomeScreen(
                     onPlayLocal = { nav.navigate("setup/local") },
-                    onPlayAi = { nav.navigate("setup/ai") }
+                    onPlayAi = { nav.navigate("setup/ai") },
+                    onResume = if (hasSaved) {
+                        {
+                            scope.launch {
+                                if (gameVm.resumeCurrent()) nav.navigate("game")
+                            }
+                        }
+                    } else null
                 )
             }
-            composable("puzzles") { PuzzlesScreen() }
+            composable("learn") { TutorialScreen() }
             composable("review") { ReviewScreen() }
             composable("settings") { SettingsScreen() }
             composable("setup/local") {

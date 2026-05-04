@@ -14,6 +14,7 @@ import com.weiqi.engine.Rules
 import com.weiqi.engine.ScoreResult
 import com.weiqi.engine.Scoring
 import com.weiqi.engine.StoneColor
+import com.weiqi.data.SavedGameRepo
 import com.weiqi.sgf.Sgf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,7 +45,9 @@ data class GameUi(
     val timeoutLoser: StoneColor? = null
 )
 
-class GameViewModel : ViewModel() {
+class GameViewModel(
+    private val repo: SavedGameRepo? = null
+) : ViewModel() {
 
     private val ai = BeginnerAI()
     private val _ui = MutableStateFlow(GameUi(state = GameState.newGame(GameConfig(boardSize = 9))))
@@ -52,6 +55,21 @@ class GameViewModel : ViewModel() {
 
     private var clockJob: Job? = null
     private var lastTickMillis: Long = 0L
+
+    private fun autosave() {
+        val s = _ui.value.state
+        if (repo == null) return
+        viewModelScope.launch { repo.saveCurrent(s) }
+    }
+
+    private fun archiveAndClear() {
+        val s = _ui.value.state
+        if (repo == null) return
+        viewModelScope.launch {
+            repo.archiveCompleted(s)
+            repo.clearCurrent()
+        }
+    }
 
     fun startGame(config: GameConfig, opponent: Opponent, aiPlays: StoneColor = StoneColor.WHITE) {
         _ui.value = GameUi(
@@ -68,6 +86,15 @@ class GameViewModel : ViewModel() {
     fun loadGame(state: GameState, opponent: Opponent = Opponent.HUMAN) {
         _ui.value = GameUi(state = state, opponent = opponent)
         startClock()
+    }
+
+    /** Restore the autosaved current game. Returns true if one was loaded. */
+    suspend fun resumeCurrent(): Boolean {
+        val state = repo?.loadCurrent() ?: return false
+        if (state.status == GameStatus.COMPLETED || state.status == GameStatus.RESIGNED) return false
+        _ui.value = GameUi(state = state, opponent = Opponent.HUMAN)
+        startClock()
+        return true
     }
 
     fun tap(point: Point) {
@@ -107,13 +134,10 @@ class GameViewModel : ViewModel() {
             is MoveResult.Rejected -> _ui.update { it.copy(rejection = humanizeReason(res.reason)) }
             is MoveResult.Accepted -> {
                 _ui.update { it.copy(state = res.newState, rejection = null) }
-                if (res.newState.status == GameStatus.SCORING) {
-                    stopClock(); computeScore()
-                } else if (res.newState.status == GameStatus.RESIGNED ||
-                    res.newState.status == GameStatus.COMPLETED) {
-                    stopClock()
-                } else {
-                    maybeTriggerAi()
+                when (res.newState.status) {
+                    GameStatus.SCORING -> { stopClock(); computeScore(); autosave() }
+                    GameStatus.RESIGNED, GameStatus.COMPLETED -> { stopClock(); archiveAndClear() }
+                    else -> { autosave(); maybeTriggerAi() }
                 }
             }
         }

@@ -50,6 +50,7 @@ data class RecentGame(
 fun HomeScreen(
     onPlayLocal: () -> Unit,
     onPlayAi: () -> Unit,
+    onResume: (() -> Unit)? = null,
     recents: List<RecentGame> = sampleRecents
 ) {
     Column(
@@ -141,6 +142,29 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("4 KYU", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        if (onResume != null) {
+            ZenCard(
+                modifier = Modifier.fillMaxWidth().clickable { onResume() },
+                container = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Continue Game",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Text("Pick up where you left off.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f))
+                    }
+                    MiniStone(StoneColor.WHITE, size = 36.dp)
                 }
             }
         }

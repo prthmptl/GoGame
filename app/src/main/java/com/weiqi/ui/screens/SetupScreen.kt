@@ -66,7 +66,27 @@ fun SetupScreen(
             ) {
                 ChipSection("BOARD SIZE", listOf(9, 13, 19), size, { it == size }) { size = it; "${it}×${it}" }
                 ChipSection("KOMI", listOf(0.5, 5.5, 6.5, 7.5), komi, { it == komi }) { komi = it; it.toString() }
-                ChipSection("HANDICAP", listOf(0, 2, 3, 4, 5, 6, 7, 8, 9), handicap, { it == handicap }) { handicap = it; "$it" }
+                Column {
+                    SectionLabel("HANDICAP")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(listOf(0, 2, 3, 4, 5), listOf(6, 7, 8, 9)).forEach { rowOpts ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                rowOpts.forEach { h ->
+                                    FilterChip(
+                                        selected = handicap == h,
+                                        onClick = { handicap = h },
+                                        label = { Text("$h") },
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 if (isAi) {
                     Column {
                         SectionLabel("AI PLAYS")

@@ -38,11 +38,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.weiqi.engine.GameStatus
 import com.weiqi.engine.StoneColor
+import com.weiqi.data.BoardTheme
+import com.weiqi.data.SettingsStore
+import com.weiqi.ui.board.BoardAppearance
 import com.weiqi.ui.board.BoardCanvas
 import com.weiqi.ui.board.BoardOverlay
 import com.weiqi.ui.board.MiniStone
 import com.weiqi.ui.components.ZenCard
 import com.weiqi.ui.components.ZenChip
+import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun GameScreen(
@@ -51,6 +55,16 @@ fun GameScreen(
 ) {
     val ui by vm.ui.collectAsState()
     val state = ui.state
+    val ctx = LocalContext.current
+    val settings by SettingsStore.get(ctx).state.collectAsState()
+    val appearance = remember(settings.boardTheme, settings.showCoordinates) {
+        when (settings.boardTheme) {
+            BoardTheme.CLASSIC_WOOD -> BoardAppearance.ClassicWood
+            BoardTheme.MINIMAL_PAPER -> BoardAppearance.MinimalPaper
+            BoardTheme.DARK_SLATE -> BoardAppearance.DarkSlate
+            BoardTheme.HIGH_CONTRAST -> BoardAppearance.HighContrast
+        }.copy(showCoordinates = settings.showCoordinates)
+    }
 
     var showResignDialog by remember { mutableStateOf(false) }
 
@@ -111,6 +125,7 @@ fun GameScreen(
                             koPoint = state.koPoint,
                             deadStones = ui.deadStones
                         ),
+                        appearance = appearance,
                         onTap = { vm.tap(it) }
                     )
                 }
@@ -342,10 +357,23 @@ private fun CompletedControls(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.size(4.dp))
+                    Text("Black",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Stones ${it.blackStones}  ·  Territory ${it.blackTerritory}  =  ${it.blackArea}",
+                        style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.size(4.dp))
+                    Text("White",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Stones ${it.whiteStones}  ·  Territory ${it.whiteTerritory}  ·  Komi %.1f  =  %.1f"
+                        .format(it.komi, it.whiteTotal),
+                        style = MaterialTheme.typography.bodyMedium)
                 }
             }
             Text(
-                "SGF (Smart Game Format) is the standard text format for sharing a game record. Export to share or save it.",
+                "SGF (Smart Game Format) is the standard text format for sharing a game record.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
