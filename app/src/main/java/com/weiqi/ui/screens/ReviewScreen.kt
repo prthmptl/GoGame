@@ -33,17 +33,33 @@ fun ReviewScreen() {
             modifier = Modifier.fillMaxWidth(),
             container = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Player One (7d)",
-                        style = MaterialTheme.typography.bodyMedium)
-                    Text("vs Player Two (6d)",
+                    Text("Player One",
                         style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Text("7 dan",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(6.dp))
+                    Text("Player Two",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    Text("6 dan",
+                        style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                com.weiqi.ui.components.ZenChip("REVIEW")
-                Spacer(Modifier.padding(start = 12.dp))
-                Text("Move 142/215", style = MaterialTheme.typography.bodyMedium)
+                Column(horizontalAlignment = Alignment.End) {
+                    com.weiqi.ui.components.ZenChip("REVIEW")
+                    Spacer(Modifier.height(6.dp))
+                    Text("Move 142 / 215",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface)
+                }
             }
         }
 

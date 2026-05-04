@@ -29,7 +29,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.weiqi.engine.StoneColor
 import com.weiqi.ui.board.MiniStone
 import com.weiqi.ui.components.ZenCard
@@ -67,20 +69,22 @@ fun HomeScreen(
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.SpaceBetween,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                Spacer(Modifier.size(4.dp))
                 Text(
-                    "Find Your\nFocus",
-                    style = MaterialTheme.typography.displayLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    "Find Your Focus",
+                    style = MaterialTheme.typography.displayLarge.copy(lineHeight = 48.sp),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
                 )
                 Text(
                     "Step into the quiet space.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
+                Spacer(Modifier.weight(1f, fill = false))
                 Button(
                     onClick = onPlayLocal,
                     colors = ButtonDefaults.buttonColors(
