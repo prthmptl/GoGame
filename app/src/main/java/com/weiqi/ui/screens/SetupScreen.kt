@@ -2,10 +2,8 @@ package com.weiqi.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,7 +22,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,12 +61,28 @@ fun SetupScreen(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                ChipSection("BOARD SIZE", listOf(9, 13, 19), size, { it == size }) { size = it; "${it}×${it}" }
-                ChipSection("KOMI", listOf(0.5, 5.5, 6.5, 7.5), komi, { it == komi }) { komi = it; it.toString() }
+                ChipSection(
+                    title = "BOARD SIZE",
+                    options = listOf(9, 13, 19),
+                    isSelected = { it == size },
+                    label = { "${it}×${it}" },
+                    onSelect = { size = it }
+                )
+                ChipSection(
+                    title = "KOMI",
+                    options = listOf(0.5, 5.5, 6.5, 7.5),
+                    isSelected = { it == komi },
+                    label = { it.toString() },
+                    onSelect = { komi = it }
+                )
                 Column {
                     SectionLabel("HANDICAP")
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(listOf(0, 2, 3, 4, 5), listOf(6, 7, 8, 9)).forEach { rowOpts ->
+                        listOf(
+                            listOf(0, 2, 3),
+                            listOf(4, 5, 6),
+                            listOf(7, 8, 9)
+                        ).forEach { rowOpts ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -129,19 +142,18 @@ fun SetupScreen(
 private fun <T> ChipSection(
     title: String,
     options: List<T>,
-    @Suppress("UNUSED_PARAMETER") current: T,
     isSelected: (T) -> Boolean,
-    onSelect: (T) -> String
+    label: (T) -> String,
+    onSelect: (T) -> Unit
 ) {
     Column {
         SectionLabel(title)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             options.forEach { opt ->
-                val label = remember(opt) { opt.toString() }
                 FilterChip(
                     selected = isSelected(opt),
                     onClick = { onSelect(opt) },
-                    label = { Text(label) },
+                    label = { Text(label(opt)) },
                     shape = RoundedCornerShape(14.dp)
                 )
             }
