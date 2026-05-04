@@ -5,16 +5,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.outlined.MenuBook
-import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -47,6 +44,7 @@ import com.weiqi.ui.screens.GameScreen
 import com.weiqi.ui.screens.GameViewModel
 import com.weiqi.ui.screens.HomeScreen
 import com.weiqi.ui.screens.ReviewScreen
+import com.weiqi.ui.screens.RulesScreen
 import com.weiqi.ui.screens.TutorialScreen
 import com.weiqi.ui.screens.SettingsScreen
 import com.weiqi.ui.screens.SetupScreen
@@ -99,9 +97,6 @@ private fun AppNav() {
                             fontWeight = FontWeight.SemiBold
                         )
                     },
-                    navigationIcon = {
-                        IconButton(onClick = {}) { Icon(Icons.Outlined.Menu, contentDescription = "Menu") }
-                    },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background
                     )
@@ -142,6 +137,7 @@ private fun AppNav() {
                 HomeScreen(
                     onPlayLocal = { nav.navigate("setup/local") },
                     onPlayAi = { nav.navigate("setup/ai") },
+                    onRules = { nav.navigate("rules") },
                     onResume = if (hasSaved) {
                         {
                             scope.launch {
@@ -154,6 +150,7 @@ private fun AppNav() {
             composable("learn") { TutorialScreen() }
             composable("review") { ReviewScreen() }
             composable("settings") { SettingsScreen() }
+            composable("rules") { RulesScreen(onBack = { nav.popBackStack() }) }
             composable("setup/local") {
                 SetupScreen(isAi = false) { cfg, opp, aiColor ->
                     gameVm.startGame(cfg, opp, aiColor)
@@ -172,4 +169,3 @@ private fun AppNav() {
         }
     }
 }
-

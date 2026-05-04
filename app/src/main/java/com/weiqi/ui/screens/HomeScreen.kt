@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,6 +51,7 @@ data class RecentGame(
 fun HomeScreen(
     onPlayLocal: () -> Unit,
     onPlayAi: () -> Unit,
+    onRules: () -> Unit,
     onResume: (() -> Unit)? = null,
     recents: List<RecentGame> = sampleRecents
 ) {
@@ -143,6 +145,30 @@ fun HomeScreen(
                     Text("4 KYU", style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+            }
+        }
+
+        // Rules reference.
+        ZenCard(
+            modifier = Modifier.fillMaxWidth().clickable { onRules() },
+            container = MaterialTheme.colorScheme.surfaceContainerHigh
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Rules", style = MaterialTheme.typography.headlineSmall)
+                    Text("Complete Chinese rules reference.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(
+                    Icons.Filled.MenuBook,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
 
