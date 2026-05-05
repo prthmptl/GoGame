@@ -19,15 +19,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +64,8 @@ fun HomeScreen(
     onResume: (() -> Unit)? = null,
     recents: List<RecentGame> = emptyList(),
     onOpenRecent: (RecentGame) -> Unit = {},
-    onShareRecent: (RecentGame) -> Unit = {}
+    onShareRecent: (RecentGame) -> Unit = {},
+    onDeleteRecent: (RecentGame) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -196,7 +204,8 @@ fun HomeScreen(
                         RecentGameRow(
                             game,
                             onOpen = { onOpenRecent(game) },
-                            onShare = { onShareRecent(game) }
+                            onShare = { onShareRecent(game) },
+                            onDelete = { onDeleteRecent(game) }
                         )
                     }
                 }
@@ -209,8 +218,34 @@ fun HomeScreen(
 private fun RecentGameRow(
     game: RecentGame,
     onOpen: () -> Unit,
-    onShare: () -> Unit
+    onShare: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete recent game?") },
+            text = { Text("This removes the saved game and its SGF file from your history.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Row(
         Modifier
             .fillMaxWidth()
@@ -242,6 +277,13 @@ private fun RecentGameRow(
                     tint = MaterialTheme.colorScheme.primary
                 )
             }
+        }
+        IconButton(onClick = { showDeleteConfirm = true }) {
+            Icon(
+                Icons.Filled.Delete,
+                contentDescription = "Delete recent game",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

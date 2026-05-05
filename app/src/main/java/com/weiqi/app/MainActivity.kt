@@ -217,7 +217,8 @@ private fun AppNav() {
         ) {
             composable("play") {
                 var hasSaved by remember { mutableStateOf(false) }
-                val recents by produceState(initialValue = emptyList<RecentGame>(), repo, currentRoute) {
+                var recentsVersion by remember { mutableStateOf(0) }
+                val recents by produceState(initialValue = emptyList<RecentGame>(), repo, currentRoute, recentsVersion) {
                     hasSaved = repo.loadCurrent() != null
                     value = repo.listCompleted(limit = 5).map { it.toRecent() }
                 }
@@ -241,6 +242,12 @@ private fun AppNav() {
                     onShareRecent = { game ->
                         val path = game.sgfPath ?: return@HomeScreen
                         shareSgf(ctx, File(path))
+                    },
+                    onDeleteRecent = { game ->
+                        scope.launch {
+                            repo.delete(game.id)
+                            recentsVersion++
+                        }
                     }
                 )
             }
