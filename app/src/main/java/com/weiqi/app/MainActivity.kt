@@ -12,7 +12,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridOn
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
@@ -113,7 +118,7 @@ private fun AppNav() {
 
     val showChrome = currentRoute == null || topTabs.any { tab -> routeMatchesTab(currentRoute, tab) }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val chromeHideOffset = with(LocalDensity.current) { 64.dp.toPx() }
     // Use the scroll state as a shared hide trigger; the bars animate their own slots.
     SideEffect {
@@ -127,35 +132,39 @@ private fun AppNav() {
         modifier = if (showChrome) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier,
         topBar = {
             if (showChrome) {
-                AnimatedVisibility(
-                    visible = barsVisible,
-                    enter = slideInVertically(
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                    ) { -it } + expandVertically(
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                        expandFrom = Alignment.Top,
-                        clip = false
-                    ),
-                    exit = slideOutVertically(
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                    ) { -it } + shrinkVertically(
-                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                        shrinkTowards = Alignment.Top,
-                        clip = false
-                    )
-                ) {
-                    CenterAlignedTopAppBar(
-                        title = {
-                            Text(
-                                "Weiqi",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        },
-                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background
+                Column {
+                    Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
+                    AnimatedVisibility(
+                        visible = barsVisible,
+                        enter = slideInVertically(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) { -it } + expandVertically(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            expandFrom = Alignment.Top,
+                            clip = false
+                        ),
+                        exit = slideOutVertically(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) { -it } + shrinkVertically(
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                            shrinkTowards = Alignment.Top,
+                            clip = false
                         )
-                    )
+                    ) {
+                        CenterAlignedTopAppBar(
+                            title = {
+                                Text(
+                                    "Weiqi",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            },
+                            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background
+                            ),
+                            windowInsets = WindowInsets(0.dp)
+                        )
+                    }
                 }
             }
         },
