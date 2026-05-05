@@ -77,6 +77,7 @@ class RulesTest {
         s = play(s, 1, 1) // B
         s = play(s, 0, 1) // W
         s = play(s, 1, 2) // B
+        s = play(s, 8, 8) // W away
         // Now black plays (0,2): captures white group.
         s = play(s, 0, 2) // B
         assertEquals(CellState.EMPTY, s.board.get(Point(0, 0)))

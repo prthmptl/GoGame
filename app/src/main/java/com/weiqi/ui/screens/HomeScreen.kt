@@ -10,19 +10,21 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,15 +38,15 @@ import androidx.compose.ui.unit.sp
 import com.weiqi.engine.StoneColor
 import com.weiqi.ui.board.MiniStone
 import com.weiqi.ui.components.ZenCard
-import com.weiqi.ui.components.ZenChip
-import com.weiqi.ui.theme.Zen
 
 data class RecentGame(
+    val id: String,
     val opponent: String,
     val result: String,
     val boardSize: Int,
     val date: String,
-    val youPlayed: StoneColor
+    val youPlayed: StoneColor,
+    val sgfPath: String?
 )
 
 @Composable
@@ -53,7 +55,9 @@ fun HomeScreen(
     onPlayAi: () -> Unit,
     onRules: () -> Unit,
     onResume: (() -> Unit)? = null,
-    recents: List<RecentGame> = sampleRecents
+    recents: List<RecentGame> = emptyList(),
+    onOpenRecent: (RecentGame) -> Unit = {},
+    onShareRecent: (RecentGame) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -106,48 +110,6 @@ fun HomeScreen(
             }
         }
 
-        // Daily puzzle.
-        ZenCard(modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp)) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Daily Puzzle", style = MaterialTheme.typography.headlineSmall)
-                    ZenChip("LIFE & DEATH")
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Zen.kayaWood),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        MiniStone(StoneColor.BLACK, size = 26.dp)
-                        MiniStone(StoneColor.WHITE, size = 26.dp)
-                        MiniStone(StoneColor.BLACK, size = 26.dp)
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Black to play and live.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("4 KYU", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-
         // Rules reference.
         ZenCard(
             modifier = Modifier.fillMaxWidth().clickable { onRules() },
@@ -165,7 +127,7 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(
-                    Icons.Filled.MenuBook,
+                    Icons.AutoMirrored.Filled.MenuBook,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -207,7 +169,7 @@ fun HomeScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("Play vs AI", style = MaterialTheme.typography.headlineSmall)
-                    Text("Beginner heuristic engine.",
+                    Text("Beginner or Intermediate engine.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -215,22 +177,28 @@ fun HomeScreen(
             }
         }
 
-        // Recent games.
-        ZenCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Recent Games", style = MaterialTheme.typography.headlineSmall)
-                    Text("VIEW ALL",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(Modifier.height(8.dp))
-                recents.forEach { game ->
-                    RecentGameRow(game)
+        // Recent games — only render the card if there is anything to show.
+        if (recents.isNotEmpty()) {
+            ZenCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Recent Games", style = MaterialTheme.typography.headlineSmall)
+                        Text("LATEST ${recents.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    recents.forEach { game ->
+                        RecentGameRow(
+                            game,
+                            onOpen = { onOpenRecent(game) },
+                            onShare = { onShareRecent(game) }
+                        )
+                    }
                 }
             }
         }
@@ -238,9 +206,16 @@ fun HomeScreen(
 }
 
 @Composable
-private fun RecentGameRow(game: RecentGame) {
+private fun RecentGameRow(
+    game: RecentGame,
+    onOpen: () -> Unit,
+    onShare: () -> Unit
+) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = game.sgfPath != null) { onOpen() }
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -255,18 +230,18 @@ private fun RecentGameRow(game: RecentGame) {
             Text("vs. ${game.opponent}",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold)
-            Text("${game.result} · ${game.boardSize}×${game.boardSize}",
+            Text("${game.result} · ${game.boardSize}×${game.boardSize} · ${game.date}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(game.date,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (game.sgfPath != null) {
+            IconButton(onClick = onShare) {
+                Icon(
+                    Icons.Filled.IosShare,
+                    contentDescription = "Share SGF",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
-
-private val sampleRecents = listOf(
-    RecentGame("MasterChen", "B+Resign", 19, "Yesterday", StoneColor.BLACK),
-    RecentGame("Kyo_99", "W+2.5", 19, "Oct 12", StoneColor.WHITE),
-    RecentGame("AI Level 5", "B+15.5", 13, "Oct 10", StoneColor.BLACK)
-)

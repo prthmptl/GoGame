@@ -1,12 +1,17 @@
 package com.weiqi.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridOn
-import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.RateReview
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -19,36 +24,46 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.weiqi.data.SavedGameRepo
-import com.weiqi.data.WeiqiDatabase
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.runtime.remember
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.weiqi.data.SavedGameEntity
+import com.weiqi.data.SavedGameRepo
+import com.weiqi.data.SettingsStore
+import com.weiqi.data.WeiqiDatabase
+import com.weiqi.engine.StoneColor
 import com.weiqi.ui.screens.GameScreen
 import com.weiqi.ui.screens.GameViewModel
 import com.weiqi.ui.screens.HomeScreen
+import com.weiqi.ui.screens.RecentGame
 import com.weiqi.ui.screens.ReviewScreen
 import com.weiqi.ui.screens.RulesScreen
-import com.weiqi.ui.screens.TutorialScreen
 import com.weiqi.ui.screens.SettingsScreen
 import com.weiqi.ui.screens.SetupScreen
+import com.weiqi.ui.screens.TutorialScreen
 import com.weiqi.ui.theme.WeiqiTheme
+import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -61,7 +76,7 @@ private data class TopTab(val route: String, val label: String, val icon: @Compo
 
 private val topTabs = listOf(
     TopTab("play", "Play") { Icon(Icons.Outlined.GridOn, contentDescription = "Play") },
-    TopTab("learn", "Learn") { Icon(Icons.Outlined.MenuBook, contentDescription = "Learn") },
+    TopTab("learn", "Learn") { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = "Learn") },
     TopTab("review", "Review") { Icon(Icons.Outlined.RateReview, contentDescription = "Review") },
     TopTab("settings", "Settings") { Icon(Icons.Outlined.Settings, contentDescription = "Settings") }
 )
@@ -72,8 +87,9 @@ private fun AppNav() {
     val nav = rememberNavController()
     val ctx = LocalContext.current
     val repo = remember(ctx) {
-        SavedGameRepo(WeiqiDatabase.get(ctx).savedGames())
+        SavedGameRepo(WeiqiDatabase.get(ctx).savedGames(), ctx.applicationContext)
     }
+    val settings by SettingsStore.get(ctx).state.collectAsState()
     val gameVm: GameViewModel = viewModel(
         factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -84,9 +100,14 @@ private fun AppNav() {
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
-    val showChrome = currentRoute in topTabs.map { it.route } || currentRoute == null
+    val showChrome = currentRoute == null ||
+        topTabs.any { tab -> currentRoute == tab.route || currentRoute.startsWith("${tab.route}?") }
+
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scope = rememberCoroutineScope()
 
     Scaffold(
+        modifier = if (showChrome) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier,
         topBar = {
             if (showChrome) {
                 CenterAlignedTopAppBar(
@@ -99,27 +120,37 @@ private fun AppNav() {
                     },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                         containerColor = MaterialTheme.colorScheme.background
-                    )
+                    ),
+                    scrollBehavior = scrollBehavior
                 )
             }
         },
         bottomBar = {
             if (showChrome) {
-                NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-                    topTabs.forEach { tab ->
-                        val selected = backStack?.destination?.hierarchy?.any { it.route == tab.route } == true
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                nav.navigate(tab.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = tab.icon,
-                            label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) }
-                        )
+                val limit = scrollBehavior.state.heightOffsetLimit
+                val barsVisible = limit == 0f ||
+                    scrollBehavior.state.heightOffset > limit / 2f
+                AnimatedVisibility(
+                    visible = barsVisible,
+                    enter = slideInVertically { it },
+                    exit = slideOutVertically { it }
+                ) {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+                        topTabs.forEach { tab ->
+                            val selected = backStack?.destination?.hierarchy?.any { it.route == tab.route } == true
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = {
+                                    nav.navigate(tab.route) {
+                                        popUpTo(nav.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                },
+                                icon = tab.icon,
+                                label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
                     }
                 }
             }
@@ -132,8 +163,10 @@ private fun AppNav() {
         ) {
             composable("play") {
                 var hasSaved by remember { mutableStateOf(false) }
-                val scope = rememberCoroutineScope()
-                LaunchedEffect(Unit) { hasSaved = repo.loadCurrent() != null }
+                val recents by produceState(initialValue = emptyList<RecentGame>(), repo, currentRoute) {
+                    hasSaved = repo.loadCurrent() != null
+                    value = repo.listCompleted(limit = 5).map { it.toRecent() }
+                }
                 HomeScreen(
                     onPlayLocal = { nav.navigate("setup/local") },
                     onPlayAi = { nav.navigate("setup/ai") },
@@ -144,28 +177,101 @@ private fun AppNav() {
                                 if (gameVm.resumeCurrent()) nav.navigate("game")
                             }
                         }
-                    } else null
+                    } else null,
+                    recents = recents,
+                    onOpenRecent = { game ->
+                        if (game.sgfPath != null) {
+                            nav.navigate("review?id=${game.id}")
+                        }
+                    },
+                    onShareRecent = { game ->
+                        val path = game.sgfPath ?: return@HomeScreen
+                        shareSgf(ctx, File(path))
+                    }
                 )
             }
             composable("learn") { TutorialScreen() }
-            composable("review") { ReviewScreen() }
+            composable(
+                route = "review?id={id}",
+                arguments = listOf(navArgument("id") { type = NavType.StringType; nullable = true; defaultValue = null })
+            ) { entry ->
+                val id = entry.arguments?.getString("id")
+                ReviewScreen(savedGameId = id, repo = repo)
+            }
             composable("settings") { SettingsScreen() }
             composable("rules") { RulesScreen(onBack = { nav.popBackStack() }) }
             composable("setup/local") {
-                SetupScreen(isAi = false) { cfg, opp, aiColor ->
-                    gameVm.startGame(cfg, opp, aiColor)
+                SetupScreen(isAi = false) { setup ->
+                    gameVm.startGame(
+                        config = setup.config,
+                        opponent = setup.opponent,
+                        aiPlays = setup.aiColor,
+                        showHints = settings.beginnerHints
+                    )
                     nav.navigate("game")
                 }
             }
             composable("setup/ai") {
-                SetupScreen(isAi = true) { cfg, opp, aiColor ->
-                    gameVm.startGame(cfg, opp, aiColor)
+                SetupScreen(isAi = true) { setup ->
+                    gameVm.startGame(
+                        config = setup.config,
+                        opponent = setup.opponent,
+                        aiPlays = setup.aiColor,
+                        showHints = settings.beginnerHints
+                    )
                     nav.navigate("game")
                 }
             }
             composable("game") {
                 GameScreen(vm = gameVm, onExit = { nav.popBackStack("play", inclusive = false) })
             }
+        }
+    }
+}
+
+private fun shareSgf(ctx: android.content.Context, file: File) {
+    if (!file.exists()) return
+    val authority = "${ctx.packageName}.fileprovider"
+    val uri = FileProvider.getUriForFile(ctx, authority, file)
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "application/x-go-sgf"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    ctx.startActivity(Intent.createChooser(send, "Share SGF").apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    })
+}
+
+private fun SavedGameEntity.toRecent(): RecentGame {
+    val you = runCatching { StoneColor.valueOf(youColor) }.getOrDefault(StoneColor.BLACK)
+    val opponentName = when {
+        opponentLabel.startsWith("AI") -> opponentLabel
+        else -> "Local"
+    }
+    val result = if (resultLabel.isBlank()) "—" else resultLabel
+    return RecentGame(
+        id = id,
+        opponent = opponentName,
+        result = result,
+        boardSize = boardSize,
+        date = relativeDate(updatedAtMillis),
+        youPlayed = you,
+        sgfPath = sgfPath.takeIf { it.isNotBlank() }
+    )
+}
+
+private fun relativeDate(millis: Long): String {
+    val now = System.currentTimeMillis()
+    val diffSec = (now - millis) / 1000
+    return when {
+        diffSec < 60 -> "Just now"
+        diffSec < 3600 -> "${diffSec / 60} min ago"
+        diffSec < 86_400 -> "${diffSec / 3600}h ago"
+        diffSec < 7 * 86_400 -> "${diffSec / 86_400}d ago"
+        else -> {
+            val days = (diffSec / 86_400).toInt()
+            "${days}d ago"
         }
     }
 }

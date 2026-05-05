@@ -29,10 +29,16 @@ import com.weiqi.engine.GameConfig
 import com.weiqi.engine.StoneColor
 import com.weiqi.ui.components.ZenCard
 
+data class GameSetup(
+    val config: GameConfig,
+    val opponent: Opponent,
+    val aiColor: StoneColor
+)
+
 @Composable
 fun SetupScreen(
     isAi: Boolean,
-    onStart: (GameConfig, Opponent, StoneColor) -> Unit
+    onStart: (GameSetup) -> Unit
 ) {
     var size by remember { mutableIntStateOf(9) }
     var komi by remember { mutableStateOf(7.5) }
@@ -120,9 +126,13 @@ fun SetupScreen(
 
         Button(
             onClick = {
-                val cfg = GameConfig(boardSize = size, komi = komi, handicap = handicap)
-                val opp = if (isAi) Opponent.AI else Opponent.HUMAN
-                onStart(cfg, opp, aiColor)
+                onStart(
+                    GameSetup(
+                        config = GameConfig(boardSize = size, komi = komi, handicap = handicap),
+                        opponent = if (isAi) Opponent.AI else Opponent.HUMAN,
+                        aiColor = aiColor
+                    )
+                )
             },
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,

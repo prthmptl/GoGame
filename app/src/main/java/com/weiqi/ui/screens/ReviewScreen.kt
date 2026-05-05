@@ -1,6 +1,5 @@
 package com.weiqi.ui.screens
 
-import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -18,11 +17,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FirstPage
-import androidx.compose.material.icons.filled.LastPage
-import androidx.compose.material.icons.filled.NavigateBefore
-import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.LastPage
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.weiqi.data.BoardTheme
+import com.weiqi.data.SavedGameRepo
 import com.weiqi.data.SettingsStore
 import com.weiqi.engine.GameConfig
 import com.weiqi.engine.GameState
@@ -55,9 +57,13 @@ import com.weiqi.ui.board.BoardAppearance
 import com.weiqi.ui.board.BoardCanvas
 import com.weiqi.ui.board.BoardOverlay
 import com.weiqi.ui.components.ZenCard
+import java.io.File
 
 @Composable
-fun ReviewScreen() {
+fun ReviewScreen(
+    savedGameId: String? = null,
+    repo: SavedGameRepo? = null
+) {
     val ctx = LocalContext.current
     val settings by SettingsStore.get(ctx).state.collectAsState()
     val appearance = remember(settings.boardTheme, settings.showCoordinates) {
@@ -70,7 +76,24 @@ fun ReviewScreen() {
     }
 
     var loaded by remember { mutableStateOf<GameState?>(null) }
+    var sgfText by remember { mutableStateOf<String?>(null) }
     var index by remember { mutableStateOf(0) }
+
+    LaunchedEffect(savedGameId) {
+        if (savedGameId != null && repo != null) {
+            val entity = repo.get(savedGameId)
+            val path = entity?.sgfPath
+            if (!path.isNullOrBlank()) {
+                runCatching {
+                    val text = File(path).readText()
+                    val state = SgfImport.import(text)
+                    sgfText = text
+                    loaded = state
+                    index = state.history.size
+                }
+            }
+        }
+    }
 
     val pickSgf = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -78,9 +101,19 @@ fun ReviewScreen() {
         if (uri != null) {
             ctx.contentResolver.openInputStream(uri)?.use { stream ->
                 val text = stream.bufferedReader().readText()
+                sgfText = text
                 loaded = SgfImport.import(text)
-                index = (loaded?.history?.size ?: 0)  // jump to end on import
+                index = (loaded?.history?.size ?: 0)
             }
+        }
+    }
+
+    val saveSgf = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/x-go-sgf")
+    ) { uri ->
+        val text = sgfText ?: return@rememberLauncherForActivityResult
+        if (uri != null) {
+            ctx.contentResolver.openOutputStream(uri)?.use { it.write(text.toByteArray()) }
         }
     }
 
@@ -94,7 +127,16 @@ fun ReviewScreen() {
     ) {
         if (loaded == null) {
             EmptyReviewCard(
-                onImport = { pickSgf.launch(arrayOf("application/x-go-sgf", "application/octet-stream", "*/*")) }
+                onImport = {
+                    pickSgf.launch(
+                        arrayOf(
+                            "application/x-go-sgf",
+                            "application/octet-stream",
+                            "text/plain",
+                            "*/*"
+                        )
+                    )
+                }
             )
             return@Column
         }
@@ -124,7 +166,14 @@ fun ReviewScreen() {
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.SemiBold)
                 }
-                IconButton(onClick = { loaded = null }) {
+                if (sgfText != null) {
+                    IconButton(onClick = {
+                        saveSgf.launch("game-${System.currentTimeMillis()}.sgf")
+                    }) {
+                        Icon(Icons.Filled.FileDownload, contentDescription = "Export SGF")
+                    }
+                }
+                IconButton(onClick = { loaded = null; sgfText = null }) {
                     Icon(Icons.Filled.FileOpen, contentDescription = "Open another")
                 }
             }
@@ -142,7 +191,6 @@ fun ReviewScreen() {
             )
         }
 
-        // Slider.
         Slider(
             value = moveIndex.toFloat(),
             onValueChange = { index = it.toInt() },
@@ -150,7 +198,6 @@ fun ReviewScreen() {
             steps = (total - 1).coerceAtLeast(0)
         )
 
-        // Transport controls.
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -159,13 +206,13 @@ fun ReviewScreen() {
                 Icon(Icons.Filled.FirstPage, contentDescription = "Start")
             }
             IconButton(onClick = { if (index > 0) index-- }) {
-                Icon(Icons.Filled.NavigateBefore, contentDescription = "Previous")
+                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "Previous")
             }
             IconButton(onClick = { if (index < total) index++ }) {
-                Icon(Icons.Filled.NavigateNext, contentDescription = "Next")
+                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "Next")
             }
             IconButton(onClick = { index = total }) {
-                Icon(Icons.Filled.LastPage, contentDescription = "End")
+                Icon(Icons.AutoMirrored.Filled.LastPage, contentDescription = "End")
             }
         }
     }
@@ -182,7 +229,8 @@ private fun EmptyReviewCard(onImport: () -> Unit) {
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold)
             Text(
-                "Import an SGF (Smart Game Format) file to step through it move by move.",
+                "Import an SGF file to step through it move by move. " +
+                    "Finished games are also saved here automatically — tap one on the home screen to open it.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
