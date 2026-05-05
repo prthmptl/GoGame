@@ -35,11 +35,14 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -79,6 +82,9 @@ class MainActivity : ComponentActivity() {
 
 private data class TopTab(val route: String, val label: String, val icon: @Composable () -> Unit)
 
+private fun routeMatchesTab(route: String?, tab: TopTab): Boolean =
+    route == tab.route || route?.startsWith("${tab.route}?") == true
+
 private val topTabs = listOf(
     TopTab("play", "Play") { Icon(Icons.Outlined.GridOn, contentDescription = "Play") },
     TopTab("learn", "Learn") { Icon(Icons.AutoMirrored.Outlined.MenuBook, contentDescription = "Learn") },
@@ -105,36 +111,56 @@ private fun AppNav() {
     val backStack by nav.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
 
-    val showChrome = currentRoute == null ||
-        topTabs.any { tab -> currentRoute == tab.route || currentRoute.startsWith("${tab.route}?") }
+    val showChrome = currentRoute == null || topTabs.any { tab -> routeMatchesTab(currentRoute, tab) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val chromeHideOffset = with(LocalDensity.current) { 64.dp.toPx() }
+    // Use the scroll state as a shared hide trigger; the bars animate their own slots.
+    SideEffect {
+        scrollBehavior.state.heightOffsetLimit = -chromeHideOffset
+    }
+    val limit = scrollBehavior.state.heightOffsetLimit
+    val barsVisible = limit == 0f || scrollBehavior.state.heightOffset > limit / 2f
     val scope = rememberCoroutineScope()
 
     Scaffold(
         modifier = if (showChrome) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier,
         topBar = {
             if (showChrome) {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            "Weiqi",
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background
+                AnimatedVisibility(
+                    visible = barsVisible,
+                    enter = slideInVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) { -it } + expandVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        expandFrom = Alignment.Top,
+                        clip = false
                     ),
-                    scrollBehavior = scrollBehavior
-                )
+                    exit = slideOutVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) { -it } + shrinkVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        shrinkTowards = Alignment.Top,
+                        clip = false
+                    )
+                ) {
+                    CenterAlignedTopAppBar(
+                        title = {
+                            Text(
+                                "Weiqi",
+                                style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.background
+                        )
+                    )
+                }
             }
         },
         bottomBar = {
             if (showChrome) {
-                val limit = scrollBehavior.state.heightOffsetLimit
-                val barsVisible = limit == 0f ||
-                    scrollBehavior.state.heightOffset > limit / 2f
                 AnimatedVisibility(
                     visible = barsVisible,
                     enter = slideInVertically(
@@ -154,7 +180,9 @@ private fun AppNav() {
                 ) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         topTabs.forEach { tab ->
-                            val selected = backStack?.destination?.hierarchy?.any { it.route == tab.route } == true
+                            val selected = backStack?.destination?.hierarchy?.any { entry ->
+                                routeMatchesTab(entry.route, tab)
+                            } == true
                             NavigationBarItem(
                                 selected = selected,
                                 onClick = {
