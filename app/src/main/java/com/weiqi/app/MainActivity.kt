@@ -6,8 +6,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridOn
@@ -31,6 +35,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
@@ -132,8 +137,20 @@ private fun AppNav() {
                     scrollBehavior.state.heightOffset > limit / 2f
                 AnimatedVisibility(
                     visible = barsVisible,
-                    enter = slideInVertically { it },
-                    exit = slideOutVertically { it }
+                    enter = slideInVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) { it } + expandVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        expandFrom = Alignment.Bottom,
+                        clip = false
+                    ),
+                    exit = slideOutVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) { it } + shrinkVertically(
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        shrinkTowards = Alignment.Bottom,
+                        clip = false
+                    )
                 ) {
                     NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                         topTabs.forEach { tab ->
