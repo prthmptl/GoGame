@@ -2,7 +2,10 @@ package com.weiqi.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.weiqi.ai.AiDifficulty
 import com.weiqi.ai.BeginnerAI
+import com.weiqi.ai.GoAi
+import com.weiqi.ai.IntermediateAI
 import com.weiqi.engine.GameConfig
 import com.weiqi.engine.GameState
 import com.weiqi.engine.GameStatus
@@ -28,7 +31,6 @@ import kotlinx.coroutines.withContext
 
 enum class Opponent { HUMAN, AI }
 
-/** Default per-player main time (Fischer-ish: just main clock for v1). */
 private const val DEFAULT_MAIN_MILLIS = 10L * 60L * 1000L
 
 data class GameUi(
@@ -39,45 +41,85 @@ data class GameUi(
     val aiThinking: Boolean = false,
     val opponent: Opponent = Opponent.HUMAN,
     val aiPlays: StoneColor = StoneColor.WHITE,
+    val aiDifficulty: AiDifficulty = AiDifficulty.BEGINNER,
     val sgf: String? = null,
     val blackMillis: Long = DEFAULT_MAIN_MILLIS,
     val whiteMillis: Long = DEFAULT_MAIN_MILLIS,
-    val timeoutLoser: StoneColor? = null
+    val timeoutLoser: StoneColor? = null,
+    val pendingPoint: Point? = null,
+    val showHints: Boolean = false
 )
 
 class GameViewModel(
     private val repo: SavedGameRepo? = null
 ) : ViewModel() {
 
-    private val ai = BeginnerAI()
+    private val beginnerAi = BeginnerAI()
+    private val intermediateAi = IntermediateAI()
     private val _ui = MutableStateFlow(GameUi(state = GameState.newGame(GameConfig(boardSize = 9))))
     val ui: StateFlow<GameUi> = _ui.asStateFlow()
 
     private var clockJob: Job? = null
     private var lastTickMillis: Long = 0L
 
+    private fun currentAi(): GoAi = when (_ui.value.aiDifficulty) {
+        AiDifficulty.BEGINNER -> beginnerAi
+        AiDifficulty.INTERMEDIATE -> intermediateAi
+    }
+
+    private fun opponentLabel(ui: GameUi): String = when (ui.opponent) {
+        Opponent.AI -> "AI · ${ui.aiDifficulty.label}"
+        Opponent.HUMAN -> "Local"
+    }
+
+    private fun youColor(ui: GameUi): StoneColor =
+        if (ui.opponent == Opponent.AI) ui.aiPlays.other() else StoneColor.BLACK
+
     private fun autosave() {
-        val s = _ui.value.state
+        val cur = _ui.value
+        val s = cur.state
         if (repo == null) return
-        viewModelScope.launch { repo.saveCurrent(s) }
+        viewModelScope.launch { repo.saveCurrent(s, opponentLabel(cur), youColor(cur)) }
     }
 
     private fun archiveAndClear() {
-        val s = _ui.value.state
+        val cur = _ui.value
+        val s = cur.state
         if (repo == null) return
+        val resultLabel = computeResultLabel(cur)
         viewModelScope.launch {
-            repo.archiveCompleted(s)
+            repo.archiveCompleted(s, opponentLabel(cur), youColor(cur), resultLabel)
             repo.clearCurrent()
         }
     }
 
-    fun startGame(config: GameConfig, opponent: Opponent, aiPlays: StoneColor = StoneColor.WHITE) {
+    private fun computeResultLabel(ui: GameUi): String {
+        if (ui.timeoutLoser != null) return "${ui.timeoutLoser.other().short()}+T"
+        return when (ui.state.status) {
+            GameStatus.RESIGNED -> {
+                val loser = ui.state.history.lastOrNull()?.player ?: return ""
+                "${loser.other().short()}+R"
+            }
+            GameStatus.COMPLETED -> ui.score?.resultString.orEmpty()
+            else -> ""
+        }
+    }
+
+    fun startGame(
+        config: GameConfig,
+        opponent: Opponent,
+        aiPlays: StoneColor = StoneColor.WHITE,
+        aiDifficulty: AiDifficulty = AiDifficulty.BEGINNER,
+        showHints: Boolean = false
+    ) {
         _ui.value = GameUi(
             state = GameState.newGame(config),
             opponent = opponent,
             aiPlays = aiPlays,
+            aiDifficulty = aiDifficulty,
             blackMillis = DEFAULT_MAIN_MILLIS,
-            whiteMillis = DEFAULT_MAIN_MILLIS
+            whiteMillis = DEFAULT_MAIN_MILLIS,
+            showHints = showHints
         )
         startClock()
         maybeTriggerAi()
@@ -88,7 +130,6 @@ class GameViewModel(
         startClock()
     }
 
-    /** Restore the autosaved current game. Returns true if one was loaded. */
     suspend fun resumeCurrent(): Boolean {
         val state = repo?.loadCurrent() ?: return false
         if (state.status == GameStatus.COMPLETED || state.status == GameStatus.RESIGNED) return false
@@ -102,7 +143,34 @@ class GameViewModel(
         if (cur.state.status == GameStatus.SCORING) {
             toggleDead(point); return
         }
-        play(MoveIntent(MoveType.PLACE_STONE, point))
+        if (cur.state.status != GameStatus.ACTIVE) return
+        // Block taps during AI's turn.
+        if (cur.opponent == Opponent.AI && cur.state.currentPlayer == cur.aiPlays) return
+
+        if (cur.showHints) {
+            // Two-tap confirm: first tap = preview ghost stone; second tap on same point = play.
+            if (cur.pendingPoint == point) {
+                _ui.update { it.copy(pendingPoint = null) }
+                play(MoveIntent(MoveType.PLACE_STONE, point))
+            } else {
+                // Probe legality so we can show a rejection toast immediately.
+                val res = Rules.apply(cur.state, MoveIntent(MoveType.PLACE_STONE, point))
+                when (res) {
+                    is MoveResult.Rejected -> _ui.update {
+                        it.copy(pendingPoint = null, rejection = humanizeReason(res.reason))
+                    }
+                    is MoveResult.Accepted -> _ui.update {
+                        it.copy(pendingPoint = point, rejection = null)
+                    }
+                }
+            }
+        } else {
+            play(MoveIntent(MoveType.PLACE_STONE, point))
+        }
+    }
+
+    fun cancelPending() {
+        _ui.update { it.copy(pendingPoint = null) }
     }
 
     fun pass() = play(MoveIntent(MoveType.PASS))
@@ -124,7 +192,7 @@ class GameViewModel(
             val r = Rules.apply(s, intent)
             if (r is MoveResult.Accepted) s = r.newState
         }
-        _ui.update { it.copy(state = s, rejection = null, score = null) }
+        _ui.update { it.copy(state = s, rejection = null, score = null, pendingPoint = null) }
     }
 
     private fun play(intent: MoveIntent) {
@@ -133,10 +201,11 @@ class GameViewModel(
         when (res) {
             is MoveResult.Rejected -> _ui.update { it.copy(rejection = humanizeReason(res.reason)) }
             is MoveResult.Accepted -> {
-                _ui.update { it.copy(state = res.newState, rejection = null) }
+                _ui.update { it.copy(state = res.newState, rejection = null, pendingPoint = null) }
                 when (res.newState.status) {
                     GameStatus.SCORING -> { stopClock(); computeScore(); autosave() }
-                    GameStatus.RESIGNED, GameStatus.COMPLETED -> { stopClock(); archiveAndClear() }
+                    GameStatus.RESIGNED -> { stopClock(); archiveAndClear() }
+                    GameStatus.COMPLETED -> { stopClock(); archiveAndClear() }
                     else -> { autosave(); maybeTriggerAi() }
                 }
             }
@@ -150,7 +219,7 @@ class GameViewModel(
         if (cur.state.currentPlayer != cur.aiPlays) return
         _ui.update { it.copy(aiThinking = true) }
         viewModelScope.launch {
-            val intent = withContext(Dispatchers.Default) { ai.chooseMove(cur.state) }
+            val intent = withContext(Dispatchers.Default) { currentAi().chooseMove(cur.state) }
             _ui.update { it.copy(aiThinking = false) }
             play(intent)
         }
@@ -173,6 +242,7 @@ class GameViewModel(
             )
         }
         stopClock()
+        archiveAndClear()
     }
 
     fun resumePlay() {
@@ -240,6 +310,11 @@ class GameViewModel(
                         state = if (newStatus != st.state.status) st.state.copy(status = newStatus) else st.state
                     )
                 }
+                // If timeout happened, persist final result.
+                if (_ui.value.timeoutLoser != null && _ui.value.state.status == GameStatus.COMPLETED) {
+                    archiveAndClear()
+                    stopClock()
+                }
             }
         }
     }
@@ -262,3 +337,5 @@ class GameViewModel(
         }
     }
 }
+
+private fun StoneColor.short(): String = if (this == StoneColor.BLACK) "B" else "W"

@@ -10,15 +10,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,9 +51,10 @@ data class RecentGame(
 fun HomeScreen(
     onPlayLocal: () -> Unit,
     onPlayAi: () -> Unit,
+    onPuzzles: () -> Unit,
     onRules: () -> Unit,
     onResume: (() -> Unit)? = null,
-    recents: List<RecentGame> = sampleRecents
+    recents: List<RecentGame> = emptyList()
 ) {
     Column(
         modifier = Modifier
@@ -107,7 +108,9 @@ fun HomeScreen(
         }
 
         // Daily puzzle.
-        ZenCard(modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp)) {
+        ZenCard(
+            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp).clickable { onPuzzles() }
+        ) {
             Column(
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -117,7 +120,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Daily Puzzle", style = MaterialTheme.typography.headlineSmall)
+                    Text("Puzzles", style = MaterialTheme.typography.headlineSmall)
                     ZenChip("LIFE & DEATH")
                 }
                 Box(
@@ -139,11 +142,11 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Black to play and live.",
+                    Text("Sharpen your reading.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("4 KYU", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("TAP TO SOLVE", style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -165,7 +168,7 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Icon(
-                    Icons.Filled.MenuBook,
+                    Icons.AutoMirrored.Filled.MenuBook,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -207,7 +210,7 @@ fun HomeScreen(
             ) {
                 Column(Modifier.weight(1f)) {
                     Text("Play vs AI", style = MaterialTheme.typography.headlineSmall)
-                    Text("Beginner heuristic engine.",
+                    Text("Beginner or Intermediate engine.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -215,22 +218,24 @@ fun HomeScreen(
             }
         }
 
-        // Recent games.
-        ZenCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Recent Games", style = MaterialTheme.typography.headlineSmall)
-                    Text("VIEW ALL",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary)
-                }
-                Spacer(Modifier.height(8.dp))
-                recents.forEach { game ->
-                    RecentGameRow(game)
+        // Recent games — only render the card if there is anything to show.
+        if (recents.isNotEmpty()) {
+            ZenCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Recent Games", style = MaterialTheme.typography.headlineSmall)
+                        Text("LATEST ${recents.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    recents.forEach { game ->
+                        RecentGameRow(game)
+                    }
                 }
             }
         }
@@ -264,9 +269,3 @@ private fun RecentGameRow(game: RecentGame) {
             color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-
-private val sampleRecents = listOf(
-    RecentGame("MasterChen", "B+Resign", 19, "Yesterday", StoneColor.BLACK),
-    RecentGame("Kyo_99", "W+2.5", 19, "Oct 12", StoneColor.WHITE),
-    RecentGame("AI Level 5", "B+15.5", 13, "Oct 10", StoneColor.BLACK)
-)

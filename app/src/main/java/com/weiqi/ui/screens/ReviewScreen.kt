@@ -20,9 +20,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.FirstPage
-import androidx.compose.material.icons.filled.LastPage
-import androidx.compose.material.icons.filled.NavigateBefore
-import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.LastPage
+import androidx.compose.material.icons.automirrored.filled.NavigateBefore
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -159,13 +159,13 @@ fun ReviewScreen() {
                 Icon(Icons.Filled.FirstPage, contentDescription = "Start")
             }
             IconButton(onClick = { if (index > 0) index-- }) {
-                Icon(Icons.Filled.NavigateBefore, contentDescription = "Previous")
+                Icon(Icons.AutoMirrored.Filled.NavigateBefore, contentDescription = "Previous")
             }
             IconButton(onClick = { if (index < total) index++ }) {
-                Icon(Icons.Filled.NavigateNext, contentDescription = "Next")
+                Icon(Icons.AutoMirrored.Filled.NavigateNext, contentDescription = "Next")
             }
             IconButton(onClick = { index = total }) {
-                Icon(Icons.Filled.LastPage, contentDescription = "End")
+                Icon(Icons.AutoMirrored.Filled.LastPage, contentDescription = "End")
             }
         }
     }

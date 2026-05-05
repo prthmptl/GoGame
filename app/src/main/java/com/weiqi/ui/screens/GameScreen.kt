@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -46,7 +46,6 @@ import com.weiqi.ui.board.BoardOverlay
 import com.weiqi.ui.board.MiniStone
 import com.weiqi.ui.components.ZenCard
 import com.weiqi.ui.components.ZenChip
-import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun GameScreen(
@@ -73,9 +72,6 @@ fun GameScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Choose a board size that leaves room for player cards + controls.
-        // Board takes up to maxWidth, but never more than ~58% of available height
-        // so controls stay visible on short screens (e.g. landscape, foldable).
         val boardSidePx = minOf(maxWidth.value, maxHeight.value * 0.58f)
         val boardSide = boardSidePx.dp
 
@@ -86,11 +82,10 @@ fun GameScreen(
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Status banner.
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 ZenChip(
                     text = when (state.status) {
-                        GameStatus.ACTIVE -> if (ui.opponent == Opponent.AI) "VS AI" else "LOCAL MATCH"
+                        GameStatus.ACTIVE -> if (ui.opponent == Opponent.AI) "VS AI · ${ui.aiDifficulty.label.uppercase()}" else "LOCAL MATCH"
                         GameStatus.SCORING -> "SCORING"
                         GameStatus.COMPLETED -> if (ui.timeoutLoser != null) "TIMEOUT" else "COMPLETED"
                         GameStatus.RESIGNED -> "RESIGNED"
@@ -99,7 +94,6 @@ fun GameScreen(
                 )
             }
 
-            // Opponent.
             val oppColor = if (ui.opponent == Opponent.AI) ui.aiPlays else StoneColor.WHITE
             PlayerCard(
                 color = oppColor,
@@ -107,10 +101,10 @@ fun GameScreen(
                 time = GameViewModel.formatTime(
                     if (oppColor == StoneColor.BLACK) ui.blackMillis else ui.whiteMillis
                 ),
-                active = state.status == GameStatus.ACTIVE && state.currentPlayer == oppColor
+                active = state.status == GameStatus.ACTIVE && state.currentPlayer == oppColor,
+                lowTime = lowTime(ui, oppColor)
             )
 
-            // Board area — perfectly square within available width.
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -123,7 +117,8 @@ fun GameScreen(
                         overlay = BoardOverlay(
                             lastMove = state.lastMove?.point,
                             koPoint = state.koPoint,
-                            deadStones = ui.deadStones
+                            deadStones = ui.deadStones,
+                            pending = ui.pendingPoint?.let { it to state.currentPlayer }
                         ),
                         appearance = appearance,
                         onTap = { vm.tap(it) }
@@ -131,7 +126,6 @@ fun GameScreen(
                 }
             }
 
-            // You.
             val you = humanColor(ui)
             PlayerCard(
                 color = you,
@@ -139,7 +133,8 @@ fun GameScreen(
                 time = GameViewModel.formatTime(
                     if (you == StoneColor.BLACK) ui.blackMillis else ui.whiteMillis
                 ),
-                active = state.status == GameStatus.ACTIVE && state.currentPlayer == you
+                active = state.status == GameStatus.ACTIVE && state.currentPlayer == you,
+                lowTime = lowTime(ui, you)
             )
 
             ui.rejection?.let {
@@ -152,8 +147,12 @@ fun GameScreen(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (ui.pendingPoint != null && state.status == GameStatus.ACTIVE) {
+                Text("Tap again to confirm — or tap elsewhere to choose a different point.",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary)
+            }
 
-            // Controls.
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
                 when (state.status) {
                     GameStatus.ACTIVE -> ActiveControls(
@@ -168,7 +167,6 @@ fun GameScreen(
                         onResume = vm::resumePlay
                     )
                     GameStatus.COMPLETED, GameStatus.RESIGNED -> {
-                        val ctx = LocalContext.current
                         CompletedControls(
                             state = state,
                             score = ui.score,
@@ -205,12 +203,18 @@ fun GameScreen(
     }
 }
 
+private fun lowTime(ui: GameUi, color: StoneColor): Boolean {
+    val ms = if (color == StoneColor.BLACK) ui.blackMillis else ui.whiteMillis
+    return ui.state.status == GameStatus.ACTIVE && ms in 1L..30_000L
+}
+
 @Composable
 private fun PlayerCard(
     color: StoneColor,
     name: String,
     time: String,
-    active: Boolean
+    active: Boolean,
+    lowTime: Boolean
 ) {
     ZenCard(
         modifier = Modifier.fillMaxWidth(),
@@ -233,8 +237,11 @@ private fun PlayerCard(
             Text(
                 time,
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = if (active) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant
+                color = when {
+                    lowTime -> MaterialTheme.colorScheme.error
+                    active -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
             )
         }
     }

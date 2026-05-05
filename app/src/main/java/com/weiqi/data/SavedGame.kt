@@ -1,5 +1,6 @@
 package com.weiqi.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
@@ -13,7 +14,6 @@ import android.content.Context
 import com.weiqi.engine.GameConfig
 import com.weiqi.engine.GameState
 import com.weiqi.engine.GameStatus
-import com.weiqi.engine.Move
 import com.weiqi.engine.MoveIntent
 import com.weiqi.engine.MoveResult
 import com.weiqi.engine.MoveType
@@ -31,13 +31,19 @@ data class SavedGameEntity(
     val handicap: Int,
     val status: String,
     /** Encoded as a sequence of moves: e.g. "B,4,4|W,3,3|B,P|W,R". */
-    val movesEncoded: String
+    val movesEncoded: String,
+    @ColumnInfo(defaultValue = "Local") val opponentLabel: String = "Local",
+    @ColumnInfo(defaultValue = "") val resultLabel: String = "",
+    @ColumnInfo(defaultValue = "BLACK") val youColor: String = "BLACK"
 )
 
 @Dao
 interface SavedGameDao {
     @Query("SELECT * FROM saved_games ORDER BY updatedAtMillis DESC")
     suspend fun list(): List<SavedGameEntity>
+
+    @Query("SELECT * FROM saved_games WHERE status IN ('COMPLETED','RESIGNED') ORDER BY updatedAtMillis DESC LIMIT :limit")
+    suspend fun listCompleted(limit: Int = 10): List<SavedGameEntity>
 
     @Query("SELECT * FROM saved_games WHERE id = :id")
     suspend fun get(id: String): SavedGameEntity?
@@ -49,7 +55,7 @@ interface SavedGameDao {
     suspend fun delete(id: String)
 }
 
-@Database(entities = [SavedGameEntity::class], version = 1, exportSchema = false)
+@Database(entities = [SavedGameEntity::class], version = 2, exportSchema = false)
 abstract class WeiqiDatabase : RoomDatabase() {
     abstract fun savedGames(): SavedGameDao
 
@@ -58,7 +64,10 @@ abstract class WeiqiDatabase : RoomDatabase() {
         fun get(context: Context): WeiqiDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext, WeiqiDatabase::class.java, "weiqi.db"
-            ).build().also { instance = it }
+            )
+                .fallbackToDestructiveMigration()
+                .build()
+                .also { instance = it }
         }
     }
 }
@@ -90,7 +99,15 @@ object GameSerializer {
         return s
     }
 
-    fun toEntity(id: String, state: GameState, createdAt: Long, updatedAt: Long): SavedGameEntity =
+    fun toEntity(
+        id: String,
+        state: GameState,
+        createdAt: Long,
+        updatedAt: Long,
+        opponentLabel: String = "Local",
+        resultLabel: String = "",
+        youColor: String = "BLACK"
+    ): SavedGameEntity =
         SavedGameEntity(
             id = id,
             createdAtMillis = createdAt,
@@ -99,13 +116,15 @@ object GameSerializer {
             komi = state.config.komi,
             handicap = state.config.handicap,
             status = state.status.name,
-            movesEncoded = encode(state)
+            movesEncoded = encode(state),
+            opponentLabel = opponentLabel,
+            resultLabel = resultLabel,
+            youColor = youColor
         )
 
     fun fromEntity(e: SavedGameEntity): GameState {
         val cfg = GameConfig(boardSize = e.boardSize, ruleset = Ruleset.CHINESE, komi = e.komi, handicap = e.handicap)
         var s = decode(cfg, e.movesEncoded)
-        // Restore terminal status if it was saved that way (decode preserves status via Rules).
         if (s.status == GameStatus.ACTIVE && e.status == GameStatus.SCORING.name) {
             s = s.copy(status = GameStatus.SCORING)
         }

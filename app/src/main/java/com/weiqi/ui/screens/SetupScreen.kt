@@ -25,19 +25,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.weiqi.ai.AiDifficulty
 import com.weiqi.engine.GameConfig
 import com.weiqi.engine.StoneColor
 import com.weiqi.ui.components.ZenCard
 
+data class GameSetup(
+    val config: GameConfig,
+    val opponent: Opponent,
+    val aiColor: StoneColor,
+    val aiDifficulty: AiDifficulty
+)
+
 @Composable
 fun SetupScreen(
     isAi: Boolean,
-    onStart: (GameConfig, Opponent, StoneColor) -> Unit
+    onStart: (GameSetup) -> Unit
 ) {
     var size by remember { mutableIntStateOf(9) }
     var komi by remember { mutableStateOf(7.5) }
     var handicap by remember { mutableIntStateOf(0) }
     var aiColor by remember { mutableStateOf(StoneColor.WHITE) }
+    var aiDifficulty by remember { mutableStateOf(AiDifficulty.BEGINNER) }
 
     Column(
         Modifier
@@ -114,15 +123,39 @@ fun SetupScreen(
                             }
                         }
                     }
+                    Column {
+                        SectionLabel("AI DIFFICULTY")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AiDifficulty.entries.forEach { d ->
+                                FilterChip(
+                                    selected = aiDifficulty == d,
+                                    onClick = { aiDifficulty = d },
+                                    label = { Text(d.label) },
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            aiDifficulty.description,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp)
+                        )
+                    }
                 }
             }
         }
 
         Button(
             onClick = {
-                val cfg = GameConfig(boardSize = size, komi = komi, handicap = handicap)
-                val opp = if (isAi) Opponent.AI else Opponent.HUMAN
-                onStart(cfg, opp, aiColor)
+                onStart(
+                    GameSetup(
+                        config = GameConfig(boardSize = size, komi = komi, handicap = handicap),
+                        opponent = if (isAi) Opponent.AI else Opponent.HUMAN,
+                        aiColor = aiColor,
+                        aiDifficulty = aiDifficulty
+                    )
+                )
             },
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,

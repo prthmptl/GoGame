@@ -20,9 +20,9 @@ import kotlin.random.Random
  *   3. Play near existing stones, with a slight preference for the 3rd/4th line early.
  *   4. Pass when no profitable moves remain.
  */
-class BeginnerAI(private val random: Random = Random.Default) {
+class BeginnerAI(private val random: Random = Random.Default) : GoAi {
 
-    fun chooseMove(state: GameState): MoveIntent {
+    override fun chooseMove(state: GameState): MoveIntent {
         val legal = Rules.legalPlacements(state)
         if (legal.isEmpty()) return MoveIntent(MoveType.PASS)
 
@@ -30,24 +30,20 @@ class BeginnerAI(private val random: Random = Random.Default) {
         val opponent = player.other()
         val board = state.board
 
-        // 1. Capturing moves.
         val captures = legal.filter { p ->
             val res = Rules.apply(state, MoveIntent(MoveType.PLACE_STONE, p))
             res is MoveResult.Accepted && res.move.captured.isNotEmpty()
         }
         if (captures.isNotEmpty()) return MoveIntent(MoveType.PLACE_STONE, pickBest(captures, board, player))
 
-        // 2. Save own atari.
         val saves = legal.filter { p -> savesAtari(state, p) }
         if (saves.isNotEmpty()) return MoveIntent(MoveType.PLACE_STONE, pickBest(saves, board, player))
 
-        // 3. Score every legal move and pick from the top tier with some randomness.
         val scored = legal.map { p -> p to scoreMove(p, board, player, opponent, state.moveNumber) }
         val maxScore = scored.maxOf { it.second }
         val top = scored.filter { it.second >= maxScore - 1 }.map { it.first }
         if (top.isEmpty()) return MoveIntent(MoveType.PASS)
 
-        // 4. Pass if even the best move looks bad late in the game (very rough endgame heuristic).
         if (state.moveNumber > board.size * board.size && maxScore <= 0) {
             return MoveIntent(MoveType.PASS)
         }
@@ -69,7 +65,6 @@ class BeginnerAI(private val random: Random = Random.Default) {
         if (!atariNeighbors) return false
         val res = Rules.apply(state, MoveIntent(MoveType.PLACE_STONE, p))
         if (res !is MoveResult.Accepted) return false
-        // The played stone's resulting group should have at least 2 liberties.
         return com.weiqi.engine.internalLiberties(res.newState.board, p) >= 2
     }
 
@@ -85,7 +80,6 @@ class BeginnerAI(private val random: Random = Random.Default) {
         val ownState = CellState.of(player)
         val oppState = CellState.of(opponent)
 
-        // Distance-from-edge bonus: prefer 3rd/4th line in opening.
         val edgeDist = minOf(p.row, p.col, size - 1 - p.row, size - 1 - p.col)
         score += if (moveNumber < size * 2) {
             when (edgeDist) {
@@ -96,17 +90,15 @@ class BeginnerAI(private val random: Random = Random.Default) {
             }
         } else 0
 
-        // Adjacency to existing stones.
         for (n in board.neighbors(p)) {
             val st = board.get(n)
             when (st) {
                 ownState -> score += 1
-                oppState -> score += 2 // contact fights
+                oppState -> score += 2
                 else -> {}
             }
         }
 
-        // Tiny noise.
         score += random.nextInt(0, 2)
         return score
     }
