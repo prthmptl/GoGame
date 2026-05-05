@@ -85,7 +85,7 @@ fun GameScreen(
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                 ZenChip(
                     text = when (state.status) {
-                        GameStatus.ACTIVE -> if (ui.opponent == Opponent.AI) "VS AI · ${ui.aiDifficulty.label.uppercase()}" else "LOCAL MATCH"
+                        GameStatus.ACTIVE -> if (ui.opponent == Opponent.AI) "VS AI" else "LOCAL MATCH"
                         GameStatus.SCORING -> "SCORING"
                         GameStatus.COMPLETED -> if (ui.timeoutLoser != null) "TIMEOUT" else "COMPLETED"
                         GameStatus.RESIGNED -> "RESIGNED"

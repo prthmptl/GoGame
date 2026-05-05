@@ -34,7 +34,8 @@ data class SavedGameEntity(
     val movesEncoded: String,
     @ColumnInfo(defaultValue = "Local") val opponentLabel: String = "Local",
     @ColumnInfo(defaultValue = "") val resultLabel: String = "",
-    @ColumnInfo(defaultValue = "BLACK") val youColor: String = "BLACK"
+    @ColumnInfo(defaultValue = "BLACK") val youColor: String = "BLACK",
+    @ColumnInfo(defaultValue = "") val sgfPath: String = ""
 )
 
 @Dao
@@ -55,7 +56,7 @@ interface SavedGameDao {
     suspend fun delete(id: String)
 }
 
-@Database(entities = [SavedGameEntity::class], version = 2, exportSchema = false)
+@Database(entities = [SavedGameEntity::class], version = 3, exportSchema = false)
 abstract class WeiqiDatabase : RoomDatabase() {
     abstract fun savedGames(): SavedGameDao
 
@@ -106,7 +107,8 @@ object GameSerializer {
         updatedAt: Long,
         opponentLabel: String = "Local",
         resultLabel: String = "",
-        youColor: String = "BLACK"
+        youColor: String = "BLACK",
+        sgfPath: String = ""
     ): SavedGameEntity =
         SavedGameEntity(
             id = id,
@@ -119,7 +121,8 @@ object GameSerializer {
             movesEncoded = encode(state),
             opponentLabel = opponentLabel,
             resultLabel = resultLabel,
-            youColor = youColor
+            youColor = youColor,
+            sgfPath = sgfPath
         )
 
     fun fromEntity(e: SavedGameEntity): GameState {

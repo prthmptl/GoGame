@@ -2,10 +2,7 @@ package com.weiqi.ui.screens
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.weiqi.ai.AiDifficulty
 import com.weiqi.ai.BeginnerAI
-import com.weiqi.ai.GoAi
-import com.weiqi.ai.IntermediateAI
 import com.weiqi.engine.GameConfig
 import com.weiqi.engine.GameState
 import com.weiqi.engine.GameStatus
@@ -41,7 +38,6 @@ data class GameUi(
     val aiThinking: Boolean = false,
     val opponent: Opponent = Opponent.HUMAN,
     val aiPlays: StoneColor = StoneColor.WHITE,
-    val aiDifficulty: AiDifficulty = AiDifficulty.BEGINNER,
     val sgf: String? = null,
     val blackMillis: Long = DEFAULT_MAIN_MILLIS,
     val whiteMillis: Long = DEFAULT_MAIN_MILLIS,
@@ -55,20 +51,14 @@ class GameViewModel(
 ) : ViewModel() {
 
     private val beginnerAi = BeginnerAI()
-    private val intermediateAi = IntermediateAI()
     private val _ui = MutableStateFlow(GameUi(state = GameState.newGame(GameConfig(boardSize = 9))))
     val ui: StateFlow<GameUi> = _ui.asStateFlow()
 
     private var clockJob: Job? = null
     private var lastTickMillis: Long = 0L
 
-    private fun currentAi(): GoAi = when (_ui.value.aiDifficulty) {
-        AiDifficulty.BEGINNER -> beginnerAi
-        AiDifficulty.INTERMEDIATE -> intermediateAi
-    }
-
     private fun opponentLabel(ui: GameUi): String = when (ui.opponent) {
-        Opponent.AI -> "AI · ${ui.aiDifficulty.label}"
+        Opponent.AI -> "AI"
         Opponent.HUMAN -> "Local"
     }
 
@@ -88,7 +78,7 @@ class GameViewModel(
         if (repo == null) return
         val resultLabel = computeResultLabel(cur)
         viewModelScope.launch {
-            repo.archiveCompleted(s, opponentLabel(cur), youColor(cur), resultLabel)
+            repo.archiveCompleted(s, opponentLabel(cur), youColor(cur), resultLabel, cur.score)
             repo.clearCurrent()
         }
     }
@@ -109,14 +99,12 @@ class GameViewModel(
         config: GameConfig,
         opponent: Opponent,
         aiPlays: StoneColor = StoneColor.WHITE,
-        aiDifficulty: AiDifficulty = AiDifficulty.BEGINNER,
         showHints: Boolean = false
     ) {
         _ui.value = GameUi(
             state = GameState.newGame(config),
             opponent = opponent,
             aiPlays = aiPlays,
-            aiDifficulty = aiDifficulty,
             blackMillis = DEFAULT_MAIN_MILLIS,
             whiteMillis = DEFAULT_MAIN_MILLIS,
             showHints = showHints
@@ -219,7 +207,7 @@ class GameViewModel(
         if (cur.state.currentPlayer != cur.aiPlays) return
         _ui.update { it.copy(aiThinking = true) }
         viewModelScope.launch {
-            val intent = withContext(Dispatchers.Default) { currentAi().chooseMove(cur.state) }
+            val intent = withContext(Dispatchers.Default) { beginnerAi.chooseMove(cur.state) }
             _ui.update { it.copy(aiThinking = false) }
             play(intent)
         }

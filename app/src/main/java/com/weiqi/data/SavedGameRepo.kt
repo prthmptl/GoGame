@@ -1,13 +1,24 @@
 package com.weiqi.data
 
+import android.content.Context
 import com.weiqi.engine.GameState
 import com.weiqi.engine.GameStatus
+import com.weiqi.engine.ScoreResult
 import com.weiqi.engine.StoneColor
+import com.weiqi.sgf.Sgf
+import java.io.File
 
-class SavedGameRepo(private val dao: SavedGameDao) {
+class SavedGameRepo(
+    private val dao: SavedGameDao,
+    private val context: Context? = null
+) {
 
     /** A single autosaved in-progress game; replaced as it advances. */
     private val currentId = "current"
+
+    private fun sgfDir(): File? = context?.let {
+        File(it.filesDir, "sgf").apply { mkdirs() }
+    }
 
     suspend fun saveCurrent(
         state: GameState,
@@ -38,10 +49,22 @@ class SavedGameRepo(private val dao: SavedGameDao) {
         state: GameState,
         opponentLabel: String,
         youColor: StoneColor,
-        resultLabel: String
-    ) {
+        resultLabel: String,
+        score: ScoreResult? = null
+    ): String {
         val id = "game_${System.currentTimeMillis()}"
         val now = System.currentTimeMillis()
+        val sgfText = Sgf.export(
+            state = state,
+            score = score,
+            blackName = if (youColor == StoneColor.BLACK) "You" else opponentLabel,
+            whiteName = if (youColor == StoneColor.WHITE) "You" else opponentLabel
+        )
+        val path = sgfDir()?.let { dir ->
+            val f = File(dir, "$id.sgf")
+            f.writeText(sgfText)
+            f.absolutePath
+        } ?: ""
         dao.upsert(
             GameSerializer.toEntity(
                 id = id,
@@ -50,11 +73,19 @@ class SavedGameRepo(private val dao: SavedGameDao) {
                 updatedAt = now,
                 opponentLabel = opponentLabel,
                 resultLabel = resultLabel,
-                youColor = youColor.name
+                youColor = youColor.name,
+                sgfPath = path
             )
         )
+        return path
+    }
+
+    suspend fun delete(id: String) {
+        dao.get(id)?.sgfPath?.takeIf { it.isNotBlank() }?.let { File(it).delete() }
+        dao.delete(id)
     }
 
     suspend fun listAll(): List<SavedGameEntity> = dao.list()
     suspend fun listCompleted(limit: Int = 10): List<SavedGameEntity> = dao.listCompleted(limit)
+    suspend fun get(id: String): SavedGameEntity? = dao.get(id)
 }

@@ -19,10 +19,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.IosShare
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,25 +38,26 @@ import androidx.compose.ui.unit.sp
 import com.weiqi.engine.StoneColor
 import com.weiqi.ui.board.MiniStone
 import com.weiqi.ui.components.ZenCard
-import com.weiqi.ui.components.ZenChip
-import com.weiqi.ui.theme.Zen
 
 data class RecentGame(
+    val id: String,
     val opponent: String,
     val result: String,
     val boardSize: Int,
     val date: String,
-    val youPlayed: StoneColor
+    val youPlayed: StoneColor,
+    val sgfPath: String?
 )
 
 @Composable
 fun HomeScreen(
     onPlayLocal: () -> Unit,
     onPlayAi: () -> Unit,
-    onPuzzles: () -> Unit,
     onRules: () -> Unit,
     onResume: (() -> Unit)? = null,
-    recents: List<RecentGame> = emptyList()
+    recents: List<RecentGame> = emptyList(),
+    onOpenRecent: (RecentGame) -> Unit = {},
+    onShareRecent: (RecentGame) -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -103,50 +106,6 @@ fun HomeScreen(
                     Icon(Icons.Filled.PlayArrow, contentDescription = null)
                     Spacer(Modifier.size(6.dp))
                     Text("Play Now", style = MaterialTheme.typography.labelLarge)
-                }
-            }
-        }
-
-        // Daily puzzle.
-        ZenCard(
-            modifier = Modifier.fillMaxWidth().heightIn(min = 200.dp).clickable { onPuzzles() }
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Puzzles", style = MaterialTheme.typography.headlineSmall)
-                    ZenChip("LIFE & DEATH")
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 120.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Zen.kayaWood),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                        MiniStone(StoneColor.BLACK, size = 26.dp)
-                        MiniStone(StoneColor.WHITE, size = 26.dp)
-                        MiniStone(StoneColor.BLACK, size = 26.dp)
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Sharpen your reading.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("TAP TO SOLVE", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary)
                 }
             }
         }
@@ -234,7 +193,11 @@ fun HomeScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     recents.forEach { game ->
-                        RecentGameRow(game)
+                        RecentGameRow(
+                            game,
+                            onOpen = { onOpenRecent(game) },
+                            onShare = { onShareRecent(game) }
+                        )
                     }
                 }
             }
@@ -243,9 +206,16 @@ fun HomeScreen(
 }
 
 @Composable
-private fun RecentGameRow(game: RecentGame) {
+private fun RecentGameRow(
+    game: RecentGame,
+    onOpen: () -> Unit,
+    onShare: () -> Unit
+) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .clickable(enabled = game.sgfPath != null) { onOpen() }
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -260,12 +230,18 @@ private fun RecentGameRow(game: RecentGame) {
             Text("vs. ${game.opponent}",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold)
-            Text("${game.result} · ${game.boardSize}×${game.boardSize}",
+            Text("${game.result} · ${game.boardSize}×${game.boardSize} · ${game.date}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(game.date,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (game.sgfPath != null) {
+            IconButton(onClick = onShare) {
+                Icon(
+                    Icons.Filled.IosShare,
+                    contentDescription = "Share SGF",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     }
 }
