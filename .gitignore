@@ -1,66 +1,48 @@
-# Gradle
-.gradle/
+# Dart / Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
 build/
-!gradle/wrapper/gradle-wrapper.jar
-!**/src/**/build/
-!**/src/**/*.jar
+.flutter-plugins
+.flutter-plugins-dependencies
 
-# Local config
-local.properties
-gradle.properties.local
+# Local agent/tooling state
+.agents/
+.codex/
 
-# IntelliJ / Android Studio
-.idea/
-*.iml
-*.ipr
-*.iws
-.kotlin/
-captures/
-.cxx/
-out/
-
-# VS Code
-.vscode/
-*.code-workspace
-
-# Android build outputs
-*.apk
-*.aab
-*.ap_
-*.dex
-*.class
-bin/
-gen/
-release/
-
-# Native
-.externalNativeBuild/
-.cxx/
-
-# Keystores / signing
+# Android
+**/android/.gradle/
+**/android/captures/
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+**/android/key.properties
 *.jks
 *.keystore
-keystore.properties
+*.p12
+*.pem
+*.mobileprovision
+*.cer
 
-# Logs / crash dumps
-*.log
-hs_err_pid*
+# iOS
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/.last_build_id
+**/ios/Podfile.lock
 
-# OS
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# macOS
 .DS_Store
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# Stitch design mockups (not part of the app)
-stitch_weiqi_android_interface/
-stitch_weiqi_android_interface*/
-
-# Temp / backup
-*.swp
-*.swo
-*~
-*.bak
-*.tmp
-go_weiqi_android_srs_tdd_continuation.md
-go_weiqi_android_srs_tdd_roadmap.md

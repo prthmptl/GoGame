@@ -1,46 +1,52 @@
-# Weiqi (Go) — Android MVP
+# Weiqi — Flutter
 
-Implements the MVP from the SRS:
+Cross-platform Flutter port of the Weiqi (Go) Android app. Supports Android and iOS.
 
-- Pure-Kotlin rules engine: capture, suicide, simple ko, positional superko (Zobrist).
-- Chinese area scoring with dead-stone removal.
-- SGF export.
-- Beginner heuristic AI (capture / save atari / shape / contact preference).
-- Jetpack Compose board UI for 9×9, 13×13, 19×19.
-- Local 2-player and human-vs-AI.
-- Room persistence layer for saved games.
-- JUnit tests for the rules engine, scoring, and SGF.
+## Features
+
+- Pure-Dart rules engine: capture, suicide, simple ko, positional superko (Zobrist).
+- Chinese area scoring with dead-stone marking.
+- Heuristic beginner AI (capture / save atari / shape / 1-ply lookahead).
+- Hand-painted board canvas (`CustomPainter`) for 9×9, 13×13, 19×19.
+- Local 2-player and human-vs-AI with main-time clock.
+- SGF export & main-line import; share via the OS share sheet.
+- Saved games (sqflite) + auto-resume.
+- Tutorial, full Chinese rules reference, settings (themes, coords, hints, move numbers).
 
 ## Layout
 
 ```
-app/src/main/java/com/weiqi/
-  engine/   # Pure-Kotlin rules, board, scoring (no Android deps)
-  ai/       # Beginner AI
-  sgf/      # SGF exporter
-  data/     # Room database, serializer
-  ui/       # Compose theme, board canvas, screens, ViewModel
-  app/      # MainActivity + nav graph
-app/src/test/  # Unit tests
+lib/src/
+  domain/      # rules engine, AI — no Flutter imports
+  sgf/         # SGF read/write
+  data/        # sqflite repo, shared_preferences settings
+  ui/          # theme, widgets, screens
 ```
 
 ## Build
 
-This is an Android Gradle project (AGP 8.5, Kotlin 2.0, Compose).
-
-You will need to populate the Gradle wrapper before first build:
-
 ```sh
-gradle wrapper --gradle-version 8.7
-./gradlew test           # runs the JVM unit tests
-./gradlew assembleDebug  # builds the APK
+flutter pub get
+flutter run
+flutter test
 ```
 
-Open in Android Studio (Hedgehog or newer) for normal development.
+### Android Play Store bundle
 
-## Out of scope (deferred from the SRS)
+```sh
+flutter build appbundle --release
+# Output: build/app/outputs/bundle/release/app-release.aab
+```
 
-Online multiplayer, ranked / matchmaking / clocks, MCTS or strong AI,
-tutorials/puzzles content, SGF import, AI review, tournaments,
-backend services, anti-cheat. The architecture keeps the engine
-isolated, so these can be layered on later without touching the rules.
+The Android `applicationId` is `com.weiqi`. For Play upload signing, copy
+`android/key.properties.example` to ignored file `android/key.properties` and
+fill in your upload keystore details.
+
+### iOS
+
+Open `ios/Runner.xcworkspace` in Xcode and configure signing. Bundle id is `com.weiqi`.
+
+```sh
+cd ios && pod install
+flutter build ipa --release
+```
