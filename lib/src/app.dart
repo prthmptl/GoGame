@@ -169,6 +169,10 @@ class _Chrome extends StatefulWidget {
 
 class _ChromeState extends State<_Chrome> {
   static const _bottomBarHeight = 68.0;
+  // Don't auto-hide if the page barely overflows. 60px is a small floor so
+  // pages that fit in the viewport never engage the hide animation. The
+  // tap-to-reveal Listener below is the real safety net against deadlocks.
+  static const _hideMinOverflow = 60.0;
   bool _chromeHidden = false;
   final List<String> _tabHistory = [];
 
@@ -227,31 +231,41 @@ class _ChromeState extends State<_Chrome> {
 
   bool _handleScroll(ScrollNotification notification) {
     if (notification.metrics.axis != Axis.vertical) return false;
-    if (notification.metrics.maxScrollExtent <= 16) {
-      _setChromeHidden(false);
+
+    // SHOW only on a deliberate user action: an upward-direction gesture or
+    // a tap (handled by the body Listener). Releasing the finger, ballistic
+    // settle, and post-resize position clamps must NOT show — they fire
+    // reflexively after every swipe and would force the chrome back before
+    // the user has a chance to interact with newly-revealed content.
+
+    if (notification is UserScrollNotification) {
+      if (notification.direction == ScrollDirection.reverse) {
+        // Hide only if there's enough overflow that the page will still be
+        // scrollable after hiding (avoid the deadlock case).
+        if (notification.metrics.maxScrollExtent >= _hideMinOverflow) {
+          _setChromeHidden(true);
+        }
+      } else if (notification.direction == ScrollDirection.forward) {
+        _setChromeHidden(false);
+      }
+      // direction == idle (finger lift): leave state alone.
       return false;
     }
-    if (notification.metrics.pixels <= 8) {
-      _setChromeHidden(false);
-      return false;
-    }
+
     if (notification is ScrollUpdateNotification) {
+      // Only react to user-finger drags. Skip programmatic scrolls
+      // (clamping, ballistic decel) that would otherwise bounce chrome state.
+      if (notification.dragDetails == null) return false;
       final delta = notification.scrollDelta;
       if (delta == null) return false;
       if (delta > 4 && notification.metrics.pixels > 24) {
         _setChromeHidden(true);
-      } else if (delta < -4) {
-        _setChromeHidden(false);
       }
+      // Note: no `delta < -4 → SHOW` path. SHOW is reserved for the
+      // direction.forward gesture and the tap-to-reveal Listener.
       return false;
     }
-    if (notification is UserScrollNotification) {
-      if (notification.direction == ScrollDirection.reverse) {
-        _setChromeHidden(true);
-      } else if (notification.direction == ScrollDirection.forward) {
-        _setChromeHidden(false);
-      }
-    }
+
     return false;
   }
 
@@ -347,15 +361,22 @@ class _ChromeState extends State<_Chrome> {
           child: Stack(
             children: [
               Positioned.fill(
-                child: AnimatedPadding(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  padding: EdgeInsets.only(
-                    top: _chromeHidden ? viewPadding.top : topChromeHeight,
-                    bottom:
-                        _chromeHidden ? viewPadding.bottom : bottomChromeHeight,
+                child: Listener(
+                  behavior: HitTestBehavior.translucent,
+                  onPointerDown: (_) {
+                    if (_chromeHidden) _setChromeHidden(false);
+                  },
+                  child: AnimatedPadding(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    padding: EdgeInsets.only(
+                      top: _chromeHidden ? viewPadding.top : topChromeHeight,
+                      bottom: _chromeHidden
+                          ? viewPadding.bottom
+                          : bottomChromeHeight,
+                    ),
+                    child: widget.child,
                   ),
-                  child: widget.child,
                 ),
               ),
               Positioned(
