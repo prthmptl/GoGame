@@ -306,17 +306,14 @@ class _Detail extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 12, right: 20, top: 4),
+            padding: const EdgeInsets.only(left: 16, right: 20, top: 4),
             child: Row(children: [
-              IconButton(
+              IconButton.filledTonal(
                 onPressed: onBack,
                 icon: const Icon(Icons.arrow_back),
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                constraints:
-                    const BoxConstraints(minWidth: 40, minHeight: 40),
+                tooltip: 'Back to lessons',
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
               Text('Beginner path',
                   style: text.labelMedium
                       ?.copyWith(color: scheme.onSurfaceVariant)),
@@ -338,9 +335,6 @@ class _Detail extends StatelessWidget {
                       padding: const EdgeInsets.only(bottom: 12),
                       child: _DiagramCard(diagram: d),
                     )),
-                TextButton(
-                    onPressed: onBack,
-                    child: const Text('Back to lessons')),
               ],
             ),
           ),
