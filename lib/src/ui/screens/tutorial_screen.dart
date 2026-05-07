@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../domain/board.dart';
 import '../../domain/models.dart';
@@ -172,36 +173,30 @@ final _lessons = <_Lesson>[
   ),
 ];
 
-class TutorialScreen extends StatefulWidget {
+class TutorialScreen extends StatelessWidget {
   const TutorialScreen({super.key});
 
   @override
-  State<TutorialScreen> createState() => _TutorialScreenState();
+  Widget build(BuildContext context) {
+    return _List(onPick: (i) => context.push('/learn/lesson/$i'));
+  }
 }
 
-class _TutorialScreenState extends State<TutorialScreen> {
-  _Lesson? _current;
+class LessonDetailScreen extends StatelessWidget {
+  final int index;
+  const LessonDetailScreen({super.key, required this.index});
 
   @override
   Widget build(BuildContext context) {
-    final inLesson = _current != null;
-    return PopScope(
-      canPop: !inLesson,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        if (inLesson) setState(() => _current = null);
-      },
-      child: inLesson
-          ? _Detail(
-              lesson: _current!,
-              onBack: () => setState(() => _current = null))
-          : _List(onPick: (l) => setState(() => _current = l)),
+    return _Detail(
+      lesson: _lessons[index],
+      onBack: () => context.pop(),
     );
   }
 }
 
 class _List extends StatelessWidget {
-  final ValueChanged<_Lesson> onPick;
+  final ValueChanged<int> onPick;
   const _List({required this.onPick});
 
   @override
@@ -231,25 +226,61 @@ class _List extends StatelessWidget {
             return Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: ZenCard(
-                onTap: () => onPick(l),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Lesson ${i + 1}',
-                              style: text.labelSmall
-                                  ?.copyWith(color: scheme.onSurfaceVariant)),
-                          Text(l.title, style: text.headlineSmall),
-                          Text(l.summary,
-                              style: text.bodyMedium
-                                  ?.copyWith(color: scheme.onSurfaceVariant)),
-                        ],
+                onTap: () => onPick(i),
+                contentPadding: EdgeInsets.zero,
+                child: IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(width: 3, color: scheme.primary),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
+                        child: Center(
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              (i + 1).toString().padLeft(2, '0'),
+                              style: text.labelLarge?.copyWith(
+                                fontFamily: 'serif',
+                                color: scheme.onPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                    Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-                  ],
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(l.title, style: text.headlineSmall),
+                              const SizedBox(height: 2),
+                              Text(
+                                l.summary,
+                                style: text.bodyMedium?.copyWith(
+                                  color: scheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 16, left: 8),
+                        child: Icon(Icons.chevron_right,
+                            color: scheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             );
@@ -270,27 +301,49 @@ class _Detail extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      padding: const EdgeInsets.only(bottom: 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back)),
-            Text('Beginner path',
-                style:
-                    text.labelMedium?.copyWith(color: scheme.onSurfaceVariant)),
-          ]),
-          Text(lesson.title, style: text.displayLarge),
-          Text(lesson.summary,
-              style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant)),
-          const SizedBox(height: 12),
-          ZenCard(child: Text(lesson.body, style: text.bodyMedium)),
-          const SizedBox(height: 12),
-          ...lesson.diagrams.map((d) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _DiagramCard(diagram: d),
-              )),
-          TextButton(onPressed: onBack, child: const Text('Back to lessons')),
+          Padding(
+            padding: const EdgeInsets.only(left: 12, right: 20, top: 4),
+            child: Row(children: [
+              IconButton(
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back),
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                constraints:
+                    const BoxConstraints(minWidth: 40, minHeight: 40),
+              ),
+              const SizedBox(width: 8),
+              Text('Beginner path',
+                  style: text.labelMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(lesson.title, style: text.displayLarge),
+                Text(lesson.summary,
+                    style: text.bodyLarge
+                        ?.copyWith(color: scheme.onSurfaceVariant)),
+                const SizedBox(height: 12),
+                ZenCard(child: Text(lesson.body, style: text.bodyMedium)),
+                const SizedBox(height: 12),
+                ...lesson.diagrams.map((d) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _DiagramCard(diagram: d),
+                    )),
+                TextButton(
+                    onPressed: onBack,
+                    child: const Text('Back to lessons')),
+              ],
+            ),
+          ),
         ],
       ),
     );

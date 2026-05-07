@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 /// "Digital Ink on Physical Wood" — Zen palette and typography.
 class Zen {
-  static const double cardRadius = 8;
-  static const double controlRadius = 8;
-  static const double dialogRadius = 12;
+  static const double cardRadius = 18;
+  static const double controlRadius = 14;
+  static const double dialogRadius = 20;
 
   static const surface = Color(0xFFFFF8F3);
   static const surfaceDim = Color(0xFFE7D8C6);
@@ -162,6 +162,12 @@ ThemeData buildWeiqiTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
+        minimumSize: const Size(0, 54),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        textStyle: textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.3,
+        ),
         shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(Zen.controlRadius)),
       ),

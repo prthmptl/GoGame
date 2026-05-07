@@ -49,6 +49,14 @@ class _WeiqiAppState extends State<WeiqiApp> {
             GoRoute(
               path: '/learn',
               builder: (context, state) => const TutorialScreen(),
+              routes: [
+                GoRoute(
+                  path: 'lesson/:idx',
+                  builder: (context, state) => LessonDetailScreen(
+                    index: int.parse(state.pathParameters['idx']!),
+                  ),
+                ),
+              ],
             ),
             GoRoute(
               path: '/review',
@@ -160,7 +168,7 @@ class _Chrome extends StatefulWidget {
 }
 
 class _ChromeState extends State<_Chrome> {
-  static const _bottomBarHeight = 65.0;
+  static const _bottomBarHeight = 68.0;
   bool _chromeHidden = false;
   final List<String> _tabHistory = [];
 
@@ -191,6 +199,10 @@ class _ChromeState extends State<_Chrome> {
   }
 
   Future<bool> _handleBack() async {
+    if (context.canPop()) {
+      context.pop();
+      return false;
+    }
     if (_tabHistory.length > 1) {
       _tabHistory.removeLast();
       final previous = _tabHistory.last;
@@ -256,37 +268,47 @@ class _ChromeState extends State<_Chrome> {
     final text = Theme.of(context).textTheme;
     final selected = _indexFor(widget.currentLocation) == index;
     final color = selected ? scheme.onSurface : scheme.onSurfaceVariant;
-    return Expanded(
-      child: InkWell(
-        onTap: () => context.go(_Chrome._routes[index]),
-        customBorder: const StadiumBorder(),
-        splashColor: Colors.transparent,
-        highlightColor: Colors.transparent,
-        hoverColor: Colors.transparent,
-        focusColor: Colors.transparent,
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return InkWell(
+      onTap: () {
+        if (!selected) HapticFeedback.selectionClick();
+        context.go(_Chrome._routes[index]);
+      },
+      customBorder: const StadiumBorder(),
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
+      focusColor: Colors.transparent,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        padding: EdgeInsets.symmetric(
+          horizontal: selected ? 16 : 12,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          color:
+              selected ? scheme.surfaceContainerHigh : Colors.transparent,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
-              width: 56,
-              height: 28,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: selected
-                    ? scheme.surfaceContainerHigh
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Icon(icon, size: 22, color: color),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: text.labelSmall?.copyWith(
-                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              ),
+            Icon(icon, size: 22, color: color),
+            AnimatedSize(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              child: selected
+                  ? Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        label,
+                        style: text.labelMedium?.copyWith(
+                          color: scheme.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),
@@ -376,25 +398,31 @@ class _ChromeState extends State<_Chrome> {
                       top: false,
                       child: SizedBox(
                         height: _bottomBarHeight,
-                        child: Row(
-                          children: [
-                            _navTile(context,
-                                icon: Icons.grid_on_outlined,
-                                label: 'Play',
-                                index: 0),
-                            _navTile(context,
-                                icon: Icons.menu_book_outlined,
-                                label: 'Learn',
-                                index: 1),
-                            _navTile(context,
-                                icon: Icons.rate_review_outlined,
-                                label: 'Review',
-                                index: 2),
-                            _navTile(context,
-                                icon: Icons.settings_outlined,
-                                label: 'Settings',
-                                index: 3),
-                          ],
+                        child: Padding(
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                          child: Row(
+                            mainAxisAlignment:
+                                MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _navTile(context,
+                                  icon: Icons.grid_on_outlined,
+                                  label: 'Play',
+                                  index: 0),
+                              _navTile(context,
+                                  icon: Icons.menu_book_outlined,
+                                  label: 'Learn',
+                                  index: 1),
+                              _navTile(context,
+                                  icon: Icons.rate_review_outlined,
+                                  label: 'Review',
+                                  index: 2),
+                              _navTile(context,
+                                  icon: Icons.settings_outlined,
+                                  label: 'Settings',
+                                  index: 3),
+                            ],
+                          ),
                         ),
                       ),
                     ),

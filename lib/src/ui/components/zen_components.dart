@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme.dart';
 
 /// Paper-tone card with a restrained shared corner radius.
-class ZenCard extends StatelessWidget {
+class ZenCard extends StatefulWidget {
   final Widget child;
   final Color? container;
   final EdgeInsetsGeometry contentPadding;
@@ -18,21 +19,57 @@ class ZenCard extends StatelessWidget {
   });
 
   @override
+  State<ZenCard> createState() => _ZenCardState();
+}
+
+class _ZenCardState extends State<ZenCard> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bg = container ?? scheme.surfaceContainer;
-    final card = Material(
+    final bg = widget.container ?? scheme.surfaceContainer;
+    final radius = BorderRadius.circular(Zen.cardRadius);
+    final inner = Material(
       color: bg,
-      borderRadius: BorderRadius.circular(Zen.cardRadius),
+      borderRadius: radius,
       clipBehavior: Clip.antiAlias,
-      child: onTap == null
-          ? Padding(padding: contentPadding, child: child)
+      child: widget.onTap == null
+          ? Padding(padding: widget.contentPadding, child: widget.child)
           : InkWell(
-              onTap: onTap,
-              child: Padding(padding: contentPadding, child: child),
+              onTap: () {
+                HapticFeedback.lightImpact();
+                widget.onTap!();
+              },
+              child:
+                  Padding(padding: widget.contentPadding, child: widget.child),
             ),
     );
-    return card;
+    final card = DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: radius,
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: inner,
+    );
+    if (widget.onTap == null) return card;
+    return Listener(
+      onPointerDown: (_) => setState(() => _pressed = true),
+      onPointerUp: (_) => setState(() => _pressed = false),
+      onPointerCancel: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: card,
+      ),
+    );
   }
 }
 
@@ -73,7 +110,7 @@ class ZenChip extends StatelessWidget {
   }
 }
 
-class ZenOptionButton extends StatelessWidget {
+class ZenOptionButton extends StatefulWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
@@ -86,21 +123,31 @@ class ZenOptionButton extends StatelessWidget {
   });
 
   @override
+  State<ZenOptionButton> createState() => _ZenOptionButtonState();
+}
+
+class _ZenOptionButtonState extends State<ZenOptionButton> {
+  bool _pressed = false;
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final bg = selected ? scheme.primary : scheme.surfaceContainerHigh;
-    final fg = selected ? scheme.onPrimary : scheme.onSurface;
-    return Material(
+    final bg = widget.selected ? scheme.primary : scheme.surfaceContainerHigh;
+    final fg = widget.selected ? scheme.onPrimary : scheme.onSurface;
+    final button = Material(
       color: bg,
       borderRadius: BorderRadius.circular(Zen.controlRadius),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          widget.onTap();
+        },
         child: SizedBox(
           height: 44,
           child: Center(
             child: Text(
-              label,
+              widget.label,
               overflow: TextOverflow.ellipsis,
               maxLines: 1,
               style: Theme.of(context)
@@ -110,6 +157,17 @@ class ZenOptionButton extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+    return Listener(
+      onPointerDown: (_) => setState(() => _pressed = true),
+      onPointerUp: (_) => setState(() => _pressed = false),
+      onPointerCancel: (_) => setState(() => _pressed = false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1.0,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: button,
       ),
     );
   }

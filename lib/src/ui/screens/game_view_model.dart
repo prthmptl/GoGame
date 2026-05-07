@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import '../../data/saved_game_repo.dart';
 import '../../domain/ai/beginner_ai.dart';
@@ -253,6 +254,17 @@ class GameViewModel extends ChangeNotifier {
       return;
     }
     final next = res.newStateAs<GameState>();
+    final isAiMove = cur.opponent == Opponent.ai &&
+        cur.state.currentPlayer == cur.aiPlays;
+    if (intent.type == MoveType.placeStone && !isAiMove) {
+      final prevCaps = cur.state.capturesByBlack + cur.state.capturesByWhite;
+      final newCaps = next.capturesByBlack + next.capturesByWhite;
+      if (newCaps > prevCaps) {
+        HapticFeedback.mediumImpact();
+      } else {
+        HapticFeedback.lightImpact();
+      }
+    }
     _set(cur.copyWith(state: next, rejection: null, pendingPoint: null));
     switch (next.status) {
       case GameStatus.scoring:
