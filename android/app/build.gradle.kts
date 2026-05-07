@@ -16,8 +16,6 @@ android {
     namespace = "com.weiqi"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
-    // ndkVersion intentionally omitted — none of our plugins ship native code, so
-    // skipping NDK provisioning avoids needing extra license acceptance on Linux.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -33,6 +31,15 @@ android {
         targetSdk = 35
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
     }
 
     signingConfigs {
@@ -54,8 +61,8 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
         }
     }
 }

@@ -55,8 +55,10 @@ class _MiniStonePainter extends CustomPainter {
       r,
       Paint()
         ..style = PaintingStyle.stroke
-        ..color = isBlack ? Colors.black : Zen.gridInk.withValues(alpha: 0.55)
-        ..strokeWidth = isBlack ? 0.6 : 1,
+        ..color = isBlack
+            ? Colors.black.withValues(alpha: 0.80)
+            : Zen.gridInk.withValues(alpha: 0.42)
+        ..strokeWidth = isBlack ? 0.45 : 0.7,
     );
   }
 

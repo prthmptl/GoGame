@@ -111,19 +111,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Widget _themeChip(BoardThemeKind theme, String label, bool selected) {
-    final scheme = Theme.of(context).colorScheme;
-    return FilterChip(
+    return ZenOptionButton(
+      label: label,
       selected: selected,
-      onSelected: (_) =>
-          widget.store.update((v) => v.copyWith(boardTheme: theme)),
-      label: Text(label,
-          style:
-              TextStyle(color: selected ? scheme.onPrimary : scheme.onSurface)),
-      backgroundColor: scheme.surfaceContainerHigh,
-      selectedColor: scheme.primary,
-      checkmarkColor: scheme.onPrimary,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      side: BorderSide.none,
+      onTap: () => widget.store.update((v) => v.copyWith(boardTheme: theme)),
     );
   }
 }

@@ -401,11 +401,11 @@ class _BoardPainter extends CustomPainter {
       final ringColor = state == CellState.black ? Colors.white : Colors.black;
       canvas.drawCircle(
         Offset(pad + step * lm.col, pad + step * lm.row),
-        stoneR * 0.36,
+        stoneR * 0.32,
         Paint()
           ..style = PaintingStyle.stroke
           ..color = ringColor
-          ..strokeWidth = 2.2,
+          ..strokeWidth = 1.1,
       );
     }
     final ko = overlay.koPoint;
@@ -455,9 +455,9 @@ class _BoardPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..color = isBlack
-            ? Colors.black.withValues(alpha: alpha)
-            : ink.withValues(alpha: 0.55 * alpha)
-        ..strokeWidth = isBlack ? 0.6 : 1,
+            ? Colors.black.withValues(alpha: 0.82 * alpha)
+            : ink.withValues(alpha: 0.42 * alpha)
+        ..strokeWidth = isBlack ? 0.45 : 0.7,
     );
   }
 

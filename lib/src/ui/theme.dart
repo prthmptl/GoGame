@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 
 /// "Digital Ink on Physical Wood" — Zen palette and typography.
 class Zen {
+  static const double cardRadius = 8;
+  static const double controlRadius = 8;
+  static const double dialogRadius = 12;
+
   static const surface = Color(0xFFFFF8F3);
   static const surfaceDim = Color(0xFFE7D8C6);
   static const surfaceContainerLow = Color(0xFFFFF2E3);
@@ -73,7 +77,7 @@ ThemeData buildWeiqiTheme() {
       fontWeight: FontWeight.bold,
       fontSize: 42,
       height: 52 / 42,
-      letterSpacing: -0.84,
+      letterSpacing: 0,
       color: scheme.onSurface,
     ),
     headlineMedium: TextStyle(
@@ -114,7 +118,7 @@ ThemeData buildWeiqiTheme() {
       fontWeight: FontWeight.w600,
       fontSize: 14,
       height: 20 / 14,
-      letterSpacing: 0.7,
+      letterSpacing: 0,
       color: scheme.onSurface,
     ),
     labelMedium: TextStyle(
@@ -122,7 +126,7 @@ ThemeData buildWeiqiTheme() {
       fontWeight: FontWeight.w600,
       fontSize: 14,
       height: 20 / 14,
-      letterSpacing: 0.7,
+      letterSpacing: 0,
       color: scheme.onSurface,
     ),
     labelSmall: TextStyle(
@@ -130,7 +134,7 @@ ThemeData buildWeiqiTheme() {
       fontWeight: FontWeight.w500,
       fontSize: 12,
       height: 16 / 12,
-      letterSpacing: 0.96,
+      letterSpacing: 0,
       color: scheme.onSurface,
     ),
   );
@@ -158,18 +162,21 @@ ThemeData buildWeiqiTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Zen.controlRadius)),
       ),
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
         foregroundColor: scheme.onSurface,
         side: BorderSide(color: scheme.outline.withValues(alpha: 0.4)),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(Zen.controlRadius)),
       ),
     ),
     chipTheme: ChipThemeData(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Zen.controlRadius)),
       backgroundColor: scheme.surfaceContainerHigh,
       selectedColor: scheme.primary,
       labelStyle: textTheme.labelLarge,
@@ -190,11 +197,13 @@ ThemeData buildWeiqiTheme() {
     cardTheme: CardThemeData(
       color: scheme.surfaceContainer,
       elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Zen.cardRadius)),
     ),
     dialogTheme: DialogThemeData(
       backgroundColor: scheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Zen.dialogRadius)),
     ),
   );
 }

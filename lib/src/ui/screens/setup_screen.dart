@@ -73,11 +73,19 @@ class _SetupScreenState extends State<SetupScreen> {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      _filterChip('BLACK', aiColor == StoneColor.black,
-                          () => setState(() => aiColor = StoneColor.black)),
+                      Expanded(
+                        child: _optionButton(
+                            'BLACK',
+                            aiColor == StoneColor.black,
+                            () => setState(() => aiColor = StoneColor.black)),
+                      ),
                       const SizedBox(width: 8),
-                      _filterChip('WHITE', aiColor == StoneColor.white,
-                          () => setState(() => aiColor = StoneColor.white)),
+                      Expanded(
+                        child: _optionButton(
+                            'WHITE',
+                            aiColor == StoneColor.white,
+                            () => setState(() => aiColor = StoneColor.white)),
+                      ),
                     ],
                   ),
                 ],
@@ -115,7 +123,7 @@ class _SetupScreenState extends State<SetupScreen> {
         children: [
           for (var j = 0; j < rows[i].length; j++) ...[
             Expanded(
-              child: _filterChip('${rows[i][j]}', handicap == rows[i][j],
+              child: _optionButton('${rows[i][j]}', handicap == rows[i][j],
                   () => setState(() => handicap = rows[i][j])),
             ),
             if (j != rows[i].length - 1) const SizedBox(width: 8),
@@ -127,21 +135,8 @@ class _SetupScreenState extends State<SetupScreen> {
     return widgets;
   }
 
-  Widget _filterChip(String label, bool selected, VoidCallback onTap) {
-    final scheme = Theme.of(context).colorScheme;
-    return FilterChip(
-      selected: selected,
-      onSelected: (_) => onTap(),
-      label: Text(label,
-          style:
-              TextStyle(color: selected ? scheme.onPrimary : scheme.onSurface)),
-      backgroundColor: scheme.surfaceContainerHigh,
-      selectedColor: scheme.primary,
-      checkmarkColor: scheme.onPrimary,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      side: BorderSide.none,
-    );
-  }
+  Widget _optionButton(String label, bool selected, VoidCallback onTap) =>
+      ZenOptionButton(label: label, selected: selected, onTap: onTap);
 }
 
 class _SectionLabel extends StatelessWidget {
@@ -176,33 +171,24 @@ class _ChipSection<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _SectionLabel(title),
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: options.map((opt) {
-            final isSelected = opt == selected;
-            return FilterChip(
-              selected: isSelected,
-              onSelected: (_) => onSelect(opt),
-              label: Text(
-                label(opt),
-                style: TextStyle(
-                    color: isSelected ? scheme.onPrimary : scheme.onSurface),
+        Row(
+          children: [
+            for (var i = 0; i < options.length; i++) ...[
+              Expanded(
+                child: ZenOptionButton(
+                  label: label(options[i]),
+                  selected: options[i] == selected,
+                  onTap: () => onSelect(options[i]),
+                ),
               ),
-              backgroundColor: scheme.surfaceContainerHigh,
-              selectedColor: scheme.primary,
-              checkmarkColor: scheme.onPrimary,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14)),
-              side: BorderSide.none,
-            );
-          }).toList(),
+              if (i != options.length - 1) const SizedBox(width: 8),
+            ],
+          ],
         ),
       ],
     );

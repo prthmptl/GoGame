@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -65,44 +67,51 @@ class _WeiqiAppState extends State<WeiqiApp> {
         ),
         GoRoute(
           path: '/rules',
-          builder: (context, state) => RulesScreen(onBack: () => context.pop()),
+          builder: (context, state) =>
+              _StandalonePage(child: RulesScreen(onBack: () => context.pop())),
         ),
         GoRoute(
           path: '/setup-local',
-          builder: (context, state) => SetupScreen(
-            isAi: false,
-            onStart: (setup) {
-              _gameVm.startGame(
-                config: setup.config,
-                opponent: setup.opponent,
-                aiPlays: setup.aiColor,
-                showHints: widget.settings.value.beginnerHints,
-              );
-              context.go('/game');
-            },
+          builder: (context, state) => _StandalonePage(
+            child: SetupScreen(
+              isAi: false,
+              onStart: (setup) {
+                _gameVm.startGame(
+                  config: setup.config,
+                  opponent: setup.opponent,
+                  aiPlays: setup.aiColor,
+                  showHints: widget.settings.value.beginnerHints,
+                );
+                context.go('/game');
+              },
+            ),
           ),
         ),
         GoRoute(
           path: '/setup-ai',
-          builder: (context, state) => SetupScreen(
-            isAi: true,
-            onStart: (setup) {
-              _gameVm.startGame(
-                config: setup.config,
-                opponent: setup.opponent,
-                aiPlays: setup.aiColor,
-                showHints: widget.settings.value.beginnerHints,
-              );
-              context.go('/game');
-            },
+          builder: (context, state) => _StandalonePage(
+            child: SetupScreen(
+              isAi: true,
+              onStart: (setup) {
+                _gameVm.startGame(
+                  config: setup.config,
+                  opponent: setup.opponent,
+                  aiPlays: setup.aiColor,
+                  showHints: widget.settings.value.beginnerHints,
+                );
+                context.go('/game');
+              },
+            ),
           ),
         ),
         GoRoute(
           path: '/game',
-          builder: (context, state) => GameScreen(
-            vm: _gameVm,
-            settings: widget.settings,
-            onExit: () => context.go('/play'),
+          builder: (context, state) => _StandalonePage(
+            child: GameScreen(
+              vm: _gameVm,
+              settings: widget.settings,
+              onExit: () => context.go('/play'),
+            ),
           ),
         ),
       ],
@@ -126,40 +135,179 @@ class _WeiqiAppState extends State<WeiqiApp> {
   }
 }
 
-class _Chrome extends StatelessWidget {
+class _StandalonePage extends StatelessWidget {
+  final Widget child;
+  const _StandalonePage({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      body: SafeArea(child: child),
+    );
+  }
+}
+
+class _Chrome extends StatefulWidget {
   final Widget child;
   final String currentLocation;
   const _Chrome({required this.child, required this.currentLocation});
 
   static const _routes = ['/play', '/learn', '/review', '/settings'];
 
+  @override
+  State<_Chrome> createState() => _ChromeState();
+}
+
+class _ChromeState extends State<_Chrome> {
+  static const _bottomBarHeight = 80.0;
+  bool _chromeHidden = false;
+
+  @override
+  void didUpdateWidget(covariant _Chrome oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentLocation != widget.currentLocation) {
+      _setChromeHidden(false);
+    }
+  }
+
+  void _setChromeHidden(bool hidden) {
+    if (_chromeHidden == hidden) return;
+    setState(() => _chromeHidden = hidden);
+  }
+
+  bool _handleScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) return false;
+    if (notification.metrics.maxScrollExtent <= 16) {
+      _setChromeHidden(false);
+      return false;
+    }
+    if (notification.metrics.pixels <= 8) {
+      _setChromeHidden(false);
+      return false;
+    }
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta;
+      if (delta == null) return false;
+      if (delta > 4 && notification.metrics.pixels > 24) {
+        _setChromeHidden(true);
+      } else if (delta < -4) {
+        _setChromeHidden(false);
+      }
+      return false;
+    }
+    if (notification is UserScrollNotification) {
+      if (notification.direction == ScrollDirection.reverse) {
+        _setChromeHidden(true);
+      } else if (notification.direction == ScrollDirection.forward) {
+        _setChromeHidden(false);
+      }
+    }
+    return false;
+  }
+
   int _indexFor(String location) {
-    final i = _routes.indexWhere((r) => location.startsWith(r));
+    final i = _Chrome._routes.indexWhere((r) => location.startsWith(r));
     return i < 0 ? 0 : i;
   }
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Weiqi',
-            style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w600)),
-      ),
-      body: SafeArea(child: child),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _indexFor(currentLocation),
-        onDestinationSelected: (i) => context.go(_routes[i]),
-        destinations: const [
-          NavigationDestination(
-              icon: Icon(Icons.grid_on_outlined), label: 'Play'),
-          NavigationDestination(
-              icon: Icon(Icons.menu_book_outlined), label: 'Learn'),
-          NavigationDestination(
-              icon: Icon(Icons.rate_review_outlined), label: 'Review'),
-          NavigationDestination(
-              icon: Icon(Icons.settings_outlined), label: 'Settings'),
-        ],
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final topChromeHeight = viewPadding.top + kToolbarHeight;
+    final bottomChromeHeight = viewPadding.bottom + _bottomBarHeight;
+    final style = SystemUiOverlayStyle.dark.copyWith(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: scheme.surfaceContainer,
+      systemNavigationBarIconBrightness: Brightness.dark,
+    );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: style,
+      child: Scaffold(
+        backgroundColor: scheme.surface,
+        body: NotificationListener<ScrollNotification>(
+          onNotification: _handleScroll,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: AnimatedPadding(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  padding: EdgeInsets.only(
+                    top: _chromeHidden ? 0 : topChromeHeight,
+                    bottom: _chromeHidden ? 0 : bottomChromeHeight,
+                  ),
+                  child: widget.child,
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  offset: _chromeHidden ? const Offset(0, -1) : Offset.zero,
+                  child: Material(
+                    color: scheme.surface,
+                    child: SafeArea(
+                      bottom: false,
+                      child: SizedBox(
+                        height: kToolbarHeight,
+                        child: Center(
+                          child: Text(
+                            'Weiqi',
+                            style: text.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  offset: _chromeHidden ? const Offset(0, 1) : Offset.zero,
+                  child: Material(
+                    color: scheme.surfaceContainer,
+                    child: SafeArea(
+                      top: false,
+                      child: NavigationBar(
+                        height: _bottomBarHeight,
+                        selectedIndex: _indexFor(widget.currentLocation),
+                        onDestinationSelected: (i) =>
+                            context.go(_Chrome._routes[i]),
+                        destinations: const [
+                          NavigationDestination(
+                              icon: Icon(Icons.grid_on_outlined),
+                              label: 'Play'),
+                          NavigationDestination(
+                              icon: Icon(Icons.menu_book_outlined),
+                              label: 'Learn'),
+                          NavigationDestination(
+                              icon: Icon(Icons.rate_review_outlined),
+                              label: 'Review'),
+                          NavigationDestination(
+                              icon: Icon(Icons.settings_outlined),
+                              label: 'Settings'),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
