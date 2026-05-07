@@ -82,7 +82,7 @@ class _WeiqiAppState extends State<WeiqiApp> {
                   aiPlays: setup.aiColor,
                   showHints: widget.settings.value.beginnerHints,
                 );
-                context.go('/game');
+                context.pushReplacement('/game');
               },
             ),
           ),
@@ -99,7 +99,7 @@ class _WeiqiAppState extends State<WeiqiApp> {
                   aiPlays: setup.aiColor,
                   showHints: widget.settings.value.beginnerHints,
                 );
-                context.go('/game');
+                context.pushReplacement('/game');
               },
             ),
           ),
@@ -160,15 +160,52 @@ class _Chrome extends StatefulWidget {
 }
 
 class _ChromeState extends State<_Chrome> {
-  static const _bottomBarHeight = 80.0;
+  static const _bottomBarHeight = 65.0;
   bool _chromeHidden = false;
+  final List<String> _tabHistory = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _tabHistory.add(_tabRootFor(widget.currentLocation));
+  }
 
   @override
   void didUpdateWidget(covariant _Chrome oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.currentLocation != widget.currentLocation) {
       _setChromeHidden(false);
+      final tab = _tabRootFor(widget.currentLocation);
+      if (_tabHistory.isEmpty || _tabHistory.last != tab) {
+        _tabHistory.remove(tab);
+        _tabHistory.add(tab);
+      }
     }
+  }
+
+  String _tabRootFor(String location) {
+    return _Chrome._routes.firstWhere(
+      (r) => location.startsWith(r),
+      orElse: () => _Chrome._routes.first,
+    );
+  }
+
+  Future<bool> _handleBack() async {
+    if (_tabHistory.length > 1) {
+      _tabHistory.removeLast();
+      final previous = _tabHistory.last;
+      // Remove so didUpdateWidget re-adds it as the current tab.
+      _tabHistory.removeLast();
+      context.go(previous);
+      return false;
+    }
+    if (_tabHistory.isNotEmpty &&
+        _tabHistory.last != _Chrome._routes.first) {
+      _tabHistory.clear();
+      context.go(_Chrome._routes.first);
+      return false;
+    }
+    return true;
   }
 
   void _setChromeHidden(bool hidden) {
@@ -211,6 +248,52 @@ class _ChromeState extends State<_Chrome> {
     return i < 0 ? 0 : i;
   }
 
+  Widget _navTile(BuildContext context,
+      {required IconData icon,
+      required String label,
+      required int index}) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final selected = _indexFor(widget.currentLocation) == index;
+    final color = selected ? scheme.onSurface : scheme.onSurfaceVariant;
+    return Expanded(
+      child: InkWell(
+        onTap: () => context.go(_Chrome._routes[index]),
+        customBorder: const StadiumBorder(),
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        hoverColor: Colors.transparent,
+        focusColor: Colors.transparent,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 28,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: selected
+                    ? scheme.surfaceContainerHigh
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Icon(icon, size: 22, color: color),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: text.labelSmall?.copyWith(
+                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
@@ -226,7 +309,16 @@ class _ChromeState extends State<_Chrome> {
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: style,
-      child: Scaffold(
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) async {
+          if (didPop) return;
+          final shouldExit = await _handleBack();
+          if (shouldExit) {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
         backgroundColor: scheme.surface,
         body: NotificationListener<ScrollNotification>(
           onNotification: _handleScroll,
@@ -237,8 +329,9 @@ class _ChromeState extends State<_Chrome> {
                   duration: const Duration(milliseconds: 180),
                   curve: Curves.easeOutCubic,
                   padding: EdgeInsets.only(
-                    top: _chromeHidden ? 0 : topChromeHeight,
-                    bottom: _chromeHidden ? 0 : bottomChromeHeight,
+                    top: _chromeHidden ? viewPadding.top : topChromeHeight,
+                    bottom:
+                        _chromeHidden ? viewPadding.bottom : bottomChromeHeight,
                   ),
                   child: widget.child,
                 ),
@@ -281,25 +374,28 @@ class _ChromeState extends State<_Chrome> {
                     color: scheme.surfaceContainer,
                     child: SafeArea(
                       top: false,
-                      child: NavigationBar(
+                      child: SizedBox(
                         height: _bottomBarHeight,
-                        selectedIndex: _indexFor(widget.currentLocation),
-                        onDestinationSelected: (i) =>
-                            context.go(_Chrome._routes[i]),
-                        destinations: const [
-                          NavigationDestination(
-                              icon: Icon(Icons.grid_on_outlined),
-                              label: 'Play'),
-                          NavigationDestination(
-                              icon: Icon(Icons.menu_book_outlined),
-                              label: 'Learn'),
-                          NavigationDestination(
-                              icon: Icon(Icons.rate_review_outlined),
-                              label: 'Review'),
-                          NavigationDestination(
-                              icon: Icon(Icons.settings_outlined),
-                              label: 'Settings'),
-                        ],
+                        child: Row(
+                          children: [
+                            _navTile(context,
+                                icon: Icons.grid_on_outlined,
+                                label: 'Play',
+                                index: 0),
+                            _navTile(context,
+                                icon: Icons.menu_book_outlined,
+                                label: 'Learn',
+                                index: 1),
+                            _navTile(context,
+                                icon: Icons.rate_review_outlined,
+                                label: 'Review',
+                                index: 2),
+                            _navTile(context,
+                                icon: Icons.settings_outlined,
+                                label: 'Settings',
+                                index: 3),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -308,6 +404,7 @@ class _ChromeState extends State<_Chrome> {
             ],
           ),
         ),
+      ),
       ),
     );
   }
@@ -390,8 +487,8 @@ class _PlayTabState extends State<_PlayTab> {
   @override
   Widget build(BuildContext context) {
     return HomeScreen(
-      onPlayLocal: () => context.go('/setup-local'),
-      onPlayAi: () => context.go('/setup-ai'),
+      onPlayLocal: () => context.push('/setup-local'),
+      onPlayAi: () => context.push('/setup-ai'),
       onRules: () => context.push('/rules'),
       onResume: _hasSaved
           ? () async {

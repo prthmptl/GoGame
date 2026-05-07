@@ -184,10 +184,19 @@ class _TutorialScreenState extends State<TutorialScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return _current == null
-        ? _List(onPick: (l) => setState(() => _current = l))
-        : _Detail(
-            lesson: _current!, onBack: () => setState(() => _current = null));
+    final inLesson = _current != null;
+    return PopScope(
+      canPop: !inLesson,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (inLesson) setState(() => _current = null);
+      },
+      child: inLesson
+          ? _Detail(
+              lesson: _current!,
+              onBack: () => setState(() => _current = null))
+          : _List(onPick: (l) => setState(() => _current = l)),
+    );
   }
 }
 

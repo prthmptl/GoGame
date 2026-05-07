@@ -58,37 +58,35 @@ class HomeScreen extends StatelessWidget {
           // Hero card
           ZenCard(
             container: scheme.surfaceContainerLow,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 244),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    'Find Your Focus',
-                    style: text.displayLarge?.copyWith(height: 48 / 42),
-                    textAlign: TextAlign.center,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Find Your Focus',
+                  style: text.displayLarge?.copyWith(height: 48 / 42),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Step into the quiet space.',
+                  style: text.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: FilledButton.icon(
+                    onPressed: onPlayLocal,
+                    icon: const Icon(Icons.play_arrow),
+                    label: Text('Play Now',
+                        style: text.labelLarge
+                            ?.copyWith(color: scheme.onPrimary)),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Step into the quiet space.',
-                    style: text.bodyMedium
-                        ?.copyWith(color: scheme.onSurfaceVariant),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: FilledButton.icon(
-                      onPressed: onPlayLocal,
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text('Play Now',
-                          style: text.labelLarge
-                              ?.copyWith(color: scheme.onPrimary)),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 12),
