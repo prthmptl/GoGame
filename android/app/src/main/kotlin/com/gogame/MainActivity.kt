@@ -1,4 +1,4 @@
-package com.weiqi
+package com.gogame
 
 import io.flutter.embedding.android.FlutterActivity
 

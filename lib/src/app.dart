@@ -20,16 +20,16 @@ import 'ui/screens/setup_screen.dart';
 import 'ui/screens/tutorial_screen.dart';
 import 'ui/theme.dart';
 
-class WeiqiApp extends StatefulWidget {
+class GoApp extends StatefulWidget {
   final SavedGameRepo repo;
   final SettingsStore settings;
-  const WeiqiApp({super.key, required this.repo, required this.settings});
+  const GoApp({super.key, required this.repo, required this.settings});
 
   @override
-  State<WeiqiApp> createState() => _WeiqiAppState();
+  State<GoApp> createState() => _GoAppState();
 }
 
-class _WeiqiAppState extends State<WeiqiApp> {
+class _GoAppState extends State<GoApp> {
   late final GameViewModel _gameVm = GameViewModel(repo: widget.repo);
   late final GoRouter _router = _buildRouter();
 
@@ -135,9 +135,9 @@ class _WeiqiAppState extends State<WeiqiApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Weiqi',
+      title: 'Go',
       debugShowCheckedModeBanner: false,
-      theme: buildWeiqiTheme(),
+      theme: buildGoTheme(),
       routerConfig: _router,
     );
   }
@@ -395,7 +395,7 @@ class _ChromeState extends State<_Chrome> {
                         height: kToolbarHeight,
                         child: Center(
                           child: Text(
-                            'Weiqi',
+                            'Go',
                             style: text.headlineSmall
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
@@ -525,7 +525,7 @@ class _PlayTabState extends State<_PlayTab> {
     final f = File(path);
     if (!f.existsSync()) return;
     await Share.shareXFiles([XFile(f.path, mimeType: 'application/x-go-sgf')],
-        subject: 'Weiqi game (SGF)');
+        subject: 'Go game (SGF)');
   }
 
   Future<void> _deleteRecent(RecentGame game) async {

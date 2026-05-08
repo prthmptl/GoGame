@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:weiqi/src/domain/game_state.dart';
-import 'package:weiqi/src/domain/models.dart';
-import 'package:weiqi/src/domain/rules.dart';
+import 'package:go_game/src/domain/game_state.dart';
+import 'package:go_game/src/domain/models.dart';
+import 'package:go_game/src/domain/rules.dart';
 
 void main() {
   GameState newGame({int size = 9, double komi = 7.5}) =>

@@ -1,9 +1,9 @@
-# Weiqi (Go) — Flutter
+# Go — Flutter
 
-A calm, cross-platform board for the game of Go (Weiqi / Baduk). Pure-Dart rules
-engine, hand-painted board, beginner AI, SGF round-trip, and a built-in tutorial
-and rules reference. Built with Flutter for Android and iOS, with desktop
-targets planned.
+A calm, cross-platform board for the game of Go. Pure-Dart rules engine,
+hand-painted board, beginner AI, SGF round-trip, and a built-in tutorial and
+rules reference. Built with Flutter for Android and iOS, with desktop targets
+planned.
 
 > **Status:** v0.2.0 — local MVP. No online play; everything runs offline on the
 > device.
@@ -63,7 +63,7 @@ targets planned.
 lib/
   main.dart                       # entrypoint, opens repo + settings, runs app
   src/
-    app.dart                      # WeiqiApp: GoRouter shell, bottom-nav chrome
+    app.dart                      # GoApp: GoRouter shell, bottom-nav chrome
     domain/                       # pure Dart — rules, board, AI
       board.dart                  # bitboard + intersection helpers
       game_state.dart             # current position, history, ko hash
@@ -153,7 +153,7 @@ flutter build appbundle --release
 # Output: build/app/outputs/bundle/release/app-release.aab
 ```
 
-The Android `applicationId` is `com.weiqi`. For Play uploads, copy the example
+The Android `applicationId` is `com.gogame`. For Play uploads, copy the example
 keystore config and fill in your details:
 
 ```sh
@@ -172,7 +172,7 @@ flutter build ipa --release
 ```
 
 Open `ios/Runner.xcworkspace` in Xcode to configure signing. Bundle id is
-`com.weiqi`.
+`com.gogame`.
 
 ### Desktop (planned)
 

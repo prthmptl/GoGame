@@ -41,7 +41,7 @@ class Zen {
   static const whiteStoneBottom = Color(0xFFE8DFD0);
 }
 
-ThemeData buildWeiqiTheme() {
+ThemeData buildGoTheme() {
   const scheme = ColorScheme(
     brightness: Brightness.light,
     primary: Zen.primary,

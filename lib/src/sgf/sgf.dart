@@ -21,7 +21,7 @@ class Sgf {
     final dStr =
         '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
     final sb = StringBuffer();
-    sb.write('(;GM[1]FF[4]CA[UTF-8]AP[Weiqi]');
+    sb.write('(;GM[1]FF[4]CA[UTF-8]AP[Go]');
     sb
       ..write('SZ[')
       ..write(state.config.boardSize)

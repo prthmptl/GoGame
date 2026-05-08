@@ -294,7 +294,7 @@ class _Controls extends StatelessWidget {
           timedOut: ui.timeoutLoser,
           onExportSgf: () async {
             final sgf = vm.exportSgf();
-            await Share.share(sgf, subject: 'Weiqi game (SGF)');
+            await Share.share(sgf, subject: 'Go game (SGF)');
           },
           onExit: onExit,
         );

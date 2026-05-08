@@ -8,5 +8,5 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final repo = await SavedGameRepo.open();
   final settings = await SettingsStore.load();
-  runApp(WeiqiApp(repo: repo, settings: settings));
+  runApp(GoApp(repo: repo, settings: settings));
 }

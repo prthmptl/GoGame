@@ -88,7 +88,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'Weiqi · Local MVP',
+            'Go · Local MVP',
             style: text.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ],

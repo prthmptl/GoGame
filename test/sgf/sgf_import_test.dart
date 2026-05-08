@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:weiqi/src/domain/models.dart';
-import 'package:weiqi/src/sgf/sgf_import.dart';
+import 'package:go_game/src/domain/models.dart';
+import 'package:go_game/src/sgf/sgf_import.dart';
 
 void main() {
   test('imports header and moves', () {

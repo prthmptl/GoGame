@@ -1,5 +1,5 @@
-name: weiqi
-description: Weiqi (Go) — a calm cross-platform Go board with rules, scoring, beginner AI, SGF, and review.
+name: go_game
+description: Go — a calm cross-platform Go app with rules, scoring, beginner AI, SGF, and review.
 publish_to: 'none'
 version: 0.2.0+3
 

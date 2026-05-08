@@ -22,7 +22,7 @@ class SavedGameRepo {
 
   static Future<SavedGameRepo> open() async {
     final base = await getApplicationDocumentsDirectory();
-    final path = p.join(base.path, 'weiqi.db');
+    final path = p.join(base.path, 'go_game.db');
     final db = await openDatabase(
       path,
       version: 3,

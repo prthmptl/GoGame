@@ -24,4 +24,4 @@ ignored by Git. If the file is present, Gradle signs release builds with that
 upload key; otherwise local release builds fall back to debug signing for smoke
 testing.
 
-The `applicationId`, `bundleId`, and namespace are already set to `com.weiqi`.
+The `applicationId`, `bundleId`, and namespace are already set to `com.gogame`.
