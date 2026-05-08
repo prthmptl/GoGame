@@ -13,7 +13,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "game.go.app"
+    namespace = "app.libertygo.play"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
@@ -26,7 +26,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "game.go.app"
+        applicationId = "app.libertygo.play"
         minSdk = 26
         targetSdk = 35
         versionCode = flutter.versionCode
