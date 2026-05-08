@@ -13,7 +13,7 @@ if (keystorePropertiesFile.exists()) {
 }
 
 android {
-    namespace = "com.gogame"
+    namespace = "com.go.game"
     compileSdk = 36
     ndkVersion = "28.2.13676358"
 
@@ -26,7 +26,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.gogame"
+        applicationId = "com.go.game"
         minSdk = 26
         targetSdk = 35
         versionCode = flutter.versionCode
