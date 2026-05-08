@@ -1,4 +1,4 @@
-package com.go.game
+package game.go.app
 
 import io.flutter.embedding.android.FlutterActivity
 
