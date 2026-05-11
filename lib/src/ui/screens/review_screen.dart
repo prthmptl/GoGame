@@ -214,6 +214,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       Text('Move $moveIndex / $total',
                           style: text.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${replayed.config.ruleset.label} rules · '
+                        '${replayed.config.boardSize}×${replayed.config.boardSize} · '
+                        'komi ${replayed.config.komi.toStringAsFixed(1)}',
+                        style: text.labelSmall
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
                     ],
                   ),
                 ),

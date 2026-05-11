@@ -25,7 +25,7 @@ class SavedGameRepo {
     final path = p.join(base.path, 'go_game.db');
     final db = await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE $_table (
@@ -35,6 +35,7 @@ class SavedGameRepo {
             boardSize INTEGER NOT NULL,
             komi REAL NOT NULL,
             handicap INTEGER NOT NULL,
+            ruleset TEXT NOT NULL DEFAULT 'CHINESE',
             status TEXT NOT NULL,
             movesEncoded TEXT NOT NULL,
             opponentLabel TEXT NOT NULL DEFAULT 'Local',
@@ -51,6 +52,7 @@ class SavedGameRepo {
           "ALTER TABLE saved_games ADD COLUMN resultLabel TEXT NOT NULL DEFAULT ''",
           "ALTER TABLE saved_games ADD COLUMN youColor TEXT NOT NULL DEFAULT 'BLACK'",
           "ALTER TABLE saved_games ADD COLUMN sgfPath TEXT NOT NULL DEFAULT ''",
+          "ALTER TABLE saved_games ADD COLUMN ruleset TEXT NOT NULL DEFAULT 'CHINESE'",
         ]) {
           try {
             await db.execute(stmt);

@@ -386,8 +386,10 @@ class _ScoringControls extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('Black area  ${score!.blackArea}', style: text.bodyMedium),
-                Text('White total  ${score!.whiteTotal.toStringAsFixed(1)}',
+                Text(
+                    'Black  ${score!.blackTotal.toStringAsFixed(score!.method == ScoringMethod.area ? 0 : 1)}',
+                    style: text.bodyMedium),
+                Text('White  ${score!.whiteTotal.toStringAsFixed(1)}',
                     style: text.bodyMedium),
               ],
             ),
@@ -471,7 +473,9 @@ class _CompletedControls extends StatelessWidget {
                 style:
                     text.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
             Text(
-              'Stones ${score!.blackStones}  ·  Territory ${score!.blackTerritory}  =  ${score!.blackArea}',
+              score!.method == ScoringMethod.area
+                  ? 'Stones ${score!.blackStones}  ·  Territory ${score!.blackTerritory}  =  ${score!.blackArea}'
+                  : 'Territory ${score!.blackTerritory}  ·  Prisoners ${score!.blackPrisoners}  =  ${score!.blackTotal.toStringAsFixed(0)}',
               style: text.bodyMedium,
             ),
             const SizedBox(height: 4),
@@ -479,8 +483,11 @@ class _CompletedControls extends StatelessWidget {
                 style:
                     text.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
             Text(
-              'Stones ${score!.whiteStones}  ·  Territory ${score!.whiteTerritory}  ·  '
-              'Komi ${score!.komi.toStringAsFixed(1)}  =  ${score!.whiteTotal.toStringAsFixed(1)}',
+              score!.method == ScoringMethod.area
+                  ? 'Stones ${score!.whiteStones}  ·  Territory ${score!.whiteTerritory}  ·  '
+                      'Komi ${score!.komi.toStringAsFixed(1)}  =  ${score!.whiteTotal.toStringAsFixed(1)}'
+                  : 'Territory ${score!.whiteTerritory}  ·  Prisoners ${score!.whitePrisoners}  ·  '
+                      'Komi ${score!.komi.toStringAsFixed(1)}  =  ${score!.whiteTotal.toStringAsFixed(1)}',
               style: text.bodyMedium,
             ),
           ],

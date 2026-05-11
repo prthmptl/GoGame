@@ -1,8 +1,31 @@
+import 'board.dart';
 import 'game_state.dart';
 import 'groups.dart';
 import 'models.dart';
 
 class Rules {
+  /// Position hash used for ko/superko checks. The salt is XORed in for
+  /// situational superko so that positions with different player-to-move are
+  /// distinguishable; positional superko ignores the player.
+  static int positionHash(
+      SuperkoMode mode, Board board, StoneColor playerToMove) {
+    final h = board.zobristHash();
+    switch (mode) {
+      case SuperkoMode.none:
+      case SuperkoMode.positional:
+        return h;
+      case SuperkoMode.situational:
+        return h ^ _playerSalt(playerToMove);
+    }
+  }
+
+  // Two large constants distinct from any zobrist cell value; either choice is
+  // fine, only their difference matters for distinguishing players.
+  static const int _blackSalt = 0x1F2E3D4C5B6A7;
+  static const int _whiteSalt = 0x7A6B5C4D3E2F1;
+  static int _playerSalt(StoneColor c) =>
+      c == StoneColor.black ? _blackSalt : _whiteSalt;
+
   static MoveResult apply(GameState state, MoveIntent intent) {
     if (state.status != GameStatus.active) {
       return MoveResult.rejected(MoveRejection.gameNotActive);
@@ -85,21 +108,33 @@ class Rules {
         ? placed
         : placed.setMany(captured.map((p) => MapEntry(p, CellState.empty)));
 
-    // Suicide check: own group must have liberties.
+    // Suicide handling: if own group has no liberties after opponent capture,
+    // either reject (most rulesets) or remove the suicided group (NZ, Ing,
+    // strict Tromp–Taylor).
     final ownGroup = findGroup(afterCapture, point);
-    if (ownGroup.liberties.isEmpty && !state.config.allowSuicide) {
-      return MoveResult.rejected(MoveRejection.suicide);
+    Set<Point> selfCaptured = const {};
+    Board afterMove = afterCapture;
+    if (ownGroup.liberties.isEmpty) {
+      if (!state.config.allowSuicide) {
+        return MoveResult.rejected(MoveRejection.suicide);
+      }
+      selfCaptured = ownGroup.stones.toSet();
+      afterMove = afterCapture.setMany(
+          selfCaptured.map((p) => MapEntry(p, CellState.empty)));
     }
 
-    // Superko: position must not repeat.
-    final newHash = afterCapture.zobristHash();
-    if (state.config.useSuperko && state.previousHashes.contains(newHash)) {
+    // Ko / superko: dispatch on configured mode.
+    final mode = state.config.superkoMode;
+    final newHash = positionHash(mode, afterMove, opponent);
+    if (mode != SuperkoMode.none && state.previousHashes.contains(newHash)) {
       return MoveResult.rejected(MoveRejection.superkoViolation);
     }
 
-    // Simple ko marker: exactly one stone captured and the placed stone is alone with one liberty.
+    // Simple ko marker: exactly one capture, single placed stone with one liberty,
+    // and the move wasn't itself a self-capture.
     Point? koPoint;
     if (captured.length == 1 &&
+        selfCaptured.isEmpty &&
         ownGroup.stones.length == 1 &&
         ownGroup.liberties.length == 1) {
       koPoint = captured.first;
@@ -113,13 +148,17 @@ class Rules {
       captured: captured.toList(),
     );
 
+    // Captures by the placing player count opponent stones removed.
+    // Self-captured stones are credited to the opponent as prisoners.
     final capsByBlack = state.capturesByBlack +
-        (player == StoneColor.black ? captured.length : 0);
+        (player == StoneColor.black ? captured.length : 0) +
+        (player == StoneColor.white ? selfCaptured.length : 0);
     final capsByWhite = state.capturesByWhite +
-        (player == StoneColor.white ? captured.length : 0);
+        (player == StoneColor.white ? captured.length : 0) +
+        (player == StoneColor.black ? selfCaptured.length : 0);
 
     final next = state.copyWith(
-      board: afterCapture,
+      board: afterMove,
       currentPlayer: opponent,
       moveNumber: state.moveNumber + 1,
       capturesByBlack: capsByBlack,

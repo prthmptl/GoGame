@@ -1,23 +1,33 @@
 import '../domain/game_state.dart';
 import '../domain/models.dart';
 import '../domain/rules.dart';
+import 'sgf.dart';
 
 class SgfParsedHeader {
   final int size;
   final double komi;
   final int handicap;
-  const SgfParsedHeader({this.size = 19, this.komi = 7.5, this.handicap = 0});
+  final Ruleset ruleset;
+  const SgfParsedHeader({
+    this.size = 19,
+    this.komi = 7.5,
+    this.handicap = 0,
+    this.ruleset = Ruleset.chinese,
+  });
 }
 
 class SgfImport {
   /// Parse the linear main line of an SGF and replay it. Variations are ignored.
   static GameState import(String sgf) {
     final header = _parseHeader(sgf);
+    final defaults = RulesetDefaults.of(header.ruleset);
     var state = GameState.newGame(GameConfig(
       boardSize: header.size,
-      ruleset: Ruleset.chinese,
+      ruleset: header.ruleset,
       komi: header.komi,
       handicap: header.handicap,
+      allowSuicide: defaults.allowSuicide,
+      superkoMode: defaults.superkoMode,
     ));
     for (final intent in _extractMoves(sgf, header.size)) {
       final r = Rules.apply(state, intent);
@@ -34,13 +44,17 @@ class SgfImport {
     int size = 19;
     double komi = 7.5;
     int handicap = 0;
+    Ruleset ruleset = Ruleset.chinese;
     final szMatch = RegExp(r'SZ\[(\d+)]').firstMatch(sgf);
     if (szMatch != null) size = int.tryParse(szMatch.group(1)!) ?? 19;
     final kmMatch = RegExp(r'KM\[([0-9.+\-]+)]').firstMatch(sgf);
     if (kmMatch != null) komi = double.tryParse(kmMatch.group(1)!) ?? 7.5;
     final haMatch = RegExp(r'HA\[(\d+)]').firstMatch(sgf);
     if (haMatch != null) handicap = int.tryParse(haMatch.group(1)!) ?? 0;
-    return SgfParsedHeader(size: size, komi: komi, handicap: handicap);
+    final ruMatch = RegExp(r'RU\[([^\]]+)]').firstMatch(sgf);
+    if (ruMatch != null) ruleset = Sgf.rulesetFromSgf(ruMatch.group(1)!);
+    return SgfParsedHeader(
+        size: size, komi: komi, handicap: handicap, ruleset: ruleset);
   }
 
   static List<MoveIntent> _extractMoves(String sgf, int size) {

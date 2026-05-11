@@ -24,14 +24,24 @@ class SetupScreen extends StatefulWidget {
 
 class _SetupScreenState extends State<SetupScreen> {
   int size = 9;
+  Ruleset ruleset = Ruleset.chinese;
   double komi = 7.5;
   int handicap = 0;
   StoneColor aiColor = StoneColor.white;
+
+  void _onRulesetChanged(Ruleset r) {
+    final defaults = RulesetDefaults.of(r);
+    setState(() {
+      ruleset = r;
+      komi = defaults.komi;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
+    final defaults = RulesetDefaults.of(ruleset);
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
@@ -48,6 +58,11 @@ class _SetupScreenState extends State<SetupScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _RulesetSection(
+                  selected: ruleset,
+                  onSelect: _onRulesetChanged,
+                ),
+                const SizedBox(height: 20),
                 _ChipSection<int>(
                   title: 'BOARD SIZE',
                   options: const [9, 13, 19],
@@ -58,9 +73,11 @@ class _SetupScreenState extends State<SetupScreen> {
                 const SizedBox(height: 20),
                 _ChipSection<double>(
                   title: 'KOMI',
-                  options: const [0.5, 5.5, 6.5, 7.5],
+                  options: const [0.5, 5.5, 6.5, 7.0, 7.5, 8.0],
                   selected: komi,
-                  label: (v) => v.toString(),
+                  label: (v) => v == v.roundToDouble()
+                      ? v.toStringAsFixed(0)
+                      : v.toString(),
                   onSelect: (v) => setState(() => komi = v),
                 ),
                 const SizedBox(height: 20),
@@ -97,8 +114,14 @@ class _SetupScreenState extends State<SetupScreen> {
             height: 60,
             child: FilledButton(
               onPressed: () => widget.onStart(GameSetup(
-                config:
-                    GameConfig(boardSize: size, komi: komi, handicap: handicap),
+                config: GameConfig(
+                  boardSize: size,
+                  ruleset: ruleset,
+                  komi: komi,
+                  handicap: handicap,
+                  allowSuicide: defaults.allowSuicide,
+                  superkoMode: defaults.superkoMode,
+                ),
                 opponent: widget.isAi ? Opponent.ai : Opponent.human,
                 aiColor: aiColor,
               )),
@@ -150,6 +173,67 @@ class _SectionLabel extends StatelessWidget {
             .textTheme
             .labelSmall
             ?.copyWith(color: scheme.onSurfaceVariant));
+  }
+}
+
+class _RulesetSection extends StatelessWidget {
+  final Ruleset selected;
+  final ValueChanged<Ruleset> onSelect;
+  const _RulesetSection({required this.selected, required this.onSelect});
+
+  // Compact label for the chip (the canonical [Ruleset.label] is "New Zealand";
+  // the chip uses "NZ" to fit the row).
+  static String _chipLabel(Ruleset r) =>
+      r == Ruleset.newZealand ? 'NZ' : r.label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final defaults = RulesetDefaults.of(selected);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionLabel('RULESET'),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 44,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: Ruleset.values.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final r = Ruleset.values[i];
+              return SizedBox(
+                width: r == Ruleset.trompTaylor ? 130 : 96,
+                child: ZenOptionButton(
+                  label: _chipLabel(r),
+                  selected: r == selected,
+                  onTap: () => onSelect(r),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          _summary(defaults),
+          style: text.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+
+  String _summary(RulesetDefaults d) {
+    final scoring =
+        d.scoringMethod == ScoringMethod.area ? 'area' : 'territory + prisoners';
+    final ko = switch (d.superkoMode) {
+      SuperkoMode.none => 'basic ko',
+      SuperkoMode.positional => 'positional superko',
+      SuperkoMode.situational => 'situational superko',
+    };
+    final suicide = d.allowSuicide ? '· suicide legal' : '';
+    return 'Scoring: $scoring · Komi: ${d.komi} · $ko $suicide'.trim();
   }
 }
 

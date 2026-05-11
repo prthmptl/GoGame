@@ -9,6 +9,7 @@ class SavedGameEntity {
   final int boardSize;
   final double komi;
   final int handicap;
+  final String ruleset;
   final String status;
 
   /// Encoded as a sequence of moves: e.g. "B,4,4|W,3,3|B,P|W,R".
@@ -27,6 +28,7 @@ class SavedGameEntity {
     required this.handicap,
     required this.status,
     required this.movesEncoded,
+    this.ruleset = 'CHINESE',
     this.opponentLabel = 'Local',
     this.resultLabel = '',
     this.youColor = 'BLACK',
@@ -40,6 +42,7 @@ class SavedGameEntity {
         'boardSize': boardSize,
         'komi': komi,
         'handicap': handicap,
+        'ruleset': ruleset,
         'status': status,
         'movesEncoded': movesEncoded,
         'opponentLabel': opponentLabel,
@@ -55,6 +58,7 @@ class SavedGameEntity {
         boardSize: (r['boardSize']! as num).toInt(),
         komi: (r['komi']! as num).toDouble(),
         handicap: (r['handicap']! as num).toInt(),
+        ruleset: r['ruleset'] as String? ?? 'CHINESE',
         status: r['status']! as String,
         movesEncoded: r['movesEncoded'] as String? ?? '',
         opponentLabel: r['opponentLabel'] as String? ?? 'Local',
@@ -135,6 +139,7 @@ class GameSerializer {
         boardSize: state.config.boardSize,
         komi: state.config.komi,
         handicap: state.config.handicap,
+        ruleset: state.config.ruleset.name.toUpperCase(),
         status: _statusName(state.status),
         movesEncoded: encode(state),
         opponentLabel: opponentLabel,
@@ -144,11 +149,15 @@ class GameSerializer {
       );
 
   static GameState fromEntity(SavedGameEntity e) {
+    final ruleset = _rulesetFrom(e.ruleset);
+    final defaults = RulesetDefaults.of(ruleset);
     final cfg = GameConfig(
       boardSize: e.boardSize,
-      ruleset: Ruleset.chinese,
+      ruleset: ruleset,
       komi: e.komi,
       handicap: e.handicap,
+      allowSuicide: defaults.allowSuicide,
+      superkoMode: defaults.superkoMode,
     );
     var s = decode(cfg, e.movesEncoded);
     if (s.status == GameStatus.active &&
@@ -156,5 +165,12 @@ class GameSerializer {
       s = s.copyWith(status: GameStatus.scoring);
     }
     return s;
+  }
+
+  static Ruleset _rulesetFrom(String s) {
+    for (final r in Ruleset.values) {
+      if (r.name.toUpperCase() == s.toUpperCase()) return r;
+    }
+    return Ruleset.chinese;
   }
 }

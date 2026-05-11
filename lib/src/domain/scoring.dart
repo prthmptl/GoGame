@@ -7,23 +7,38 @@ class ScoreResult {
   final int whiteStones;
   final int blackTerritory;
   final int whiteTerritory;
+  final int blackPrisoners;
+  final int whitePrisoners;
   final int neutral;
   final double komi;
+  final ScoringMethod method;
 
   const ScoreResult({
     required this.blackStones,
     required this.whiteStones,
     required this.blackTerritory,
     required this.whiteTerritory,
+    required this.blackPrisoners,
+    required this.whitePrisoners,
     required this.neutral,
     required this.komi,
+    required this.method,
   });
 
+  /// Legacy alias: living stones + surrounded territory (Chinese-style raw total).
   int get blackArea => blackStones + blackTerritory;
-  double get whiteTotal => (whiteStones + whiteTerritory) + komi;
+  int get whiteArea => whiteStones + whiteTerritory;
+
+  double get blackTotal => method == ScoringMethod.area
+      ? (blackStones + blackTerritory).toDouble()
+      : (blackTerritory + blackPrisoners).toDouble();
+
+  double get whiteTotal => method == ScoringMethod.area
+      ? (whiteStones + whiteTerritory) + komi
+      : (whiteTerritory + whitePrisoners) + komi;
 
   /// Positive = black wins by N. Negative = white wins by |N|.
-  double get margin => blackArea - whiteTotal;
+  double get margin => blackTotal - whiteTotal;
 
   String get resultString {
     if (margin > 0) return 'B+${margin.toStringAsFixed(1)}';
@@ -33,9 +48,29 @@ class ScoreResult {
 }
 
 class Scoring {
-  /// Chinese area scoring. [deadStones] are removed before counting.
+  /// Score the given state using the ruleset configured on the game.
+  /// [deadStones] are removed before counting; under territory scoring,
+  /// they are also added to the capturing player's prisoner total.
   static ScoreResult score(GameState state,
       {Set<Point> deadStones = const {}}) {
+    final method = RulesetDefaults.of(state.config.ruleset).scoringMethod;
+
+    // Tally dead-stone prisoners (used only under territory scoring).
+    var deadBlack = 0;
+    var deadWhite = 0;
+    for (final p in deadStones) {
+      switch (state.board.cellAt(p)) {
+        case CellState.black:
+          deadBlack++;
+          break;
+        case CellState.white:
+          deadWhite++;
+          break;
+        case CellState.empty:
+          break;
+      }
+    }
+
     final board = _removeDead(state.board, deadStones);
     final size = board.size;
 
@@ -97,13 +132,21 @@ class Scoring {
       }
     }
 
+    // Prisoners: stones captured during play + opponent's dead stones at endgame.
+    // Black's prisoners are white stones black has captured.
+    final blackPrisoners = state.capturesByBlack + deadWhite;
+    final whitePrisoners = state.capturesByWhite + deadBlack;
+
     return ScoreResult(
       blackStones: blackStones,
       whiteStones: whiteStones,
       blackTerritory: blackTerritory,
       whiteTerritory: whiteTerritory,
+      blackPrisoners: blackPrisoners,
+      whitePrisoners: whitePrisoners,
       neutral: neutral,
       komi: state.config.komi,
+      method: method,
     );
   }
 

@@ -1,5 +1,6 @@
 import 'board.dart';
 import 'models.dart';
+import 'rules.dart';
 
 class GameState {
   final Board board;
@@ -67,6 +68,8 @@ class GameState {
     final board = Board.empty(config.boardSize);
     final starting = config.handicap > 0 ? StoneColor.white : StoneColor.black;
     final withHandicap = _applyHandicap(board, config.handicap);
+    final seedHash =
+        Rules.positionHash(config.superkoMode, withHandicap, starting);
     return GameState(
       board: withHandicap,
       config: config,
@@ -75,7 +78,7 @@ class GameState {
       capturesByBlack: 0,
       capturesByWhite: 0,
       koPoint: null,
-      previousHashes: <int>{withHandicap.zobristHash()},
+      previousHashes: <int>{seedHash},
       status: GameStatus.active,
       consecutivePasses: 0,
       lastMove: null,
