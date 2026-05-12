@@ -188,9 +188,6 @@ class _RulesetSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final defaults = RulesetDefaults.of(selected);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -215,25 +212,8 @@ class _RulesetSection extends StatelessWidget {
             },
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          _summary(defaults),
-          style: text.labelSmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
       ],
     );
-  }
-
-  String _summary(RulesetDefaults d) {
-    final scoring =
-        d.scoringMethod == ScoringMethod.area ? 'area' : 'territory + prisoners';
-    final ko = switch (d.superkoMode) {
-      SuperkoMode.none => 'basic ko',
-      SuperkoMode.positional => 'positional superko',
-      SuperkoMode.situational => 'situational superko',
-    };
-    final suicide = d.allowSuicide ? '· suicide legal' : '';
-    return 'Scoring: $scoring · Komi: ${d.komi} · $ko $suicide'.trim();
   }
 }
 
