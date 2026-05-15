@@ -147,7 +147,7 @@ class HomeScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Play vs AI', style: text.headlineSmall),
-                      Text('Beginner or Intermediate engine.',
+                      Text('Beginner engine.',
                           style: text.bodyMedium
                               ?.copyWith(color: scheme.onSurfaceVariant)),
                     ],
