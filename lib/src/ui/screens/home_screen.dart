@@ -146,8 +146,8 @@ class HomeScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Play vs AI', style: text.headlineSmall),
-                      Text('Beginner engine.',
+                      Text('Practice Match', style: text.headlineSmall),
+                      Text('Play against a practice opponent.',
                           style: text.bodyMedium
                               ?.copyWith(color: scheme.onSurfaceVariant)),
                     ],
@@ -247,7 +247,10 @@ class _RecentGameRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('vs. ${game.opponent}',
+                  Text(
+                      game.opponent == 'Practice'
+                          ? 'Practice'
+                          : 'vs. ${game.opponent}',
                       style: text.bodyMedium
                           ?.copyWith(fontWeight: FontWeight.w600)),
                   Text(

@@ -88,6 +88,7 @@ class _GoAppState extends State<GoApp> {
                   config: setup.config,
                   opponent: setup.opponent,
                   aiPlays: setup.aiColor,
+                  aiDifficulty: setup.aiDifficulty,
                   showHints: widget.settings.value.beginnerHints,
                 );
                 context.pushReplacement('/game');
@@ -105,6 +106,7 @@ class _GoAppState extends State<GoApp> {
                   config: setup.config,
                   opponent: setup.opponent,
                   aiPlays: setup.aiColor,
+                  aiDifficulty: setup.aiDifficulty,
                   showHints: widget.settings.value.beginnerHints,
                 );
                 context.pushReplacement('/game');
@@ -215,8 +217,7 @@ class _ChromeState extends State<_Chrome> {
       context.go(previous);
       return false;
     }
-    if (_tabHistory.isNotEmpty &&
-        _tabHistory.last != _Chrome._routes.first) {
+    if (_tabHistory.isNotEmpty && _tabHistory.last != _Chrome._routes.first) {
       _tabHistory.clear();
       context.go(_Chrome._routes.first);
       return false;
@@ -275,9 +276,7 @@ class _ChromeState extends State<_Chrome> {
   }
 
   Widget _navTile(BuildContext context,
-      {required IconData icon,
-      required String label,
-      required int index}) {
+      {required IconData icon, required String label, required int index}) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final selected = _indexFor(widget.currentLocation) == index;
@@ -300,8 +299,7 @@ class _ChromeState extends State<_Chrome> {
           vertical: 10,
         ),
         decoration: BoxDecoration(
-          color:
-              selected ? scheme.surfaceContainerHigh : Colors.transparent,
+          color: selected ? scheme.surfaceContainerHigh : Colors.transparent,
           borderRadius: BorderRadius.circular(22),
         ),
         child: Row(
@@ -355,105 +353,103 @@ class _ChromeState extends State<_Chrome> {
           }
         },
         child: Scaffold(
-        backgroundColor: scheme.surface,
-        body: NotificationListener<ScrollNotification>(
-          onNotification: _handleScroll,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Listener(
-                  behavior: HitTestBehavior.translucent,
-                  onPointerDown: (_) {
-                    if (_chromeHidden) _setChromeHidden(false);
-                  },
-                  child: AnimatedPadding(
+          backgroundColor: scheme.surface,
+          body: NotificationListener<ScrollNotification>(
+            onNotification: _handleScroll,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Listener(
+                    behavior: HitTestBehavior.translucent,
+                    onPointerDown: (_) {
+                      if (_chromeHidden) _setChromeHidden(false);
+                    },
+                    child: AnimatedPadding(
+                      duration: const Duration(milliseconds: 180),
+                      curve: Curves.easeOutCubic,
+                      padding: EdgeInsets.only(
+                        top: _chromeHidden ? viewPadding.top : topChromeHeight,
+                        bottom: _chromeHidden
+                            ? viewPadding.bottom
+                            : bottomChromeHeight,
+                      ),
+                      child: widget.child,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  top: 0,
+                  child: AnimatedSlide(
                     duration: const Duration(milliseconds: 180),
                     curve: Curves.easeOutCubic,
-                    padding: EdgeInsets.only(
-                      top: _chromeHidden ? viewPadding.top : topChromeHeight,
-                      bottom: _chromeHidden
-                          ? viewPadding.bottom
-                          : bottomChromeHeight,
-                    ),
-                    child: widget.child,
-                  ),
-                ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                top: 0,
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  offset: _chromeHidden ? const Offset(0, -1) : Offset.zero,
-                  child: Material(
-                    color: scheme.surface,
-                    child: SafeArea(
-                      bottom: false,
-                      child: SizedBox(
-                        height: kToolbarHeight,
-                        child: Center(
-                          child: Text(
-                            'Go',
-                            style: text.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
+                    offset: _chromeHidden ? const Offset(0, -1) : Offset.zero,
+                    child: Material(
+                      color: scheme.surface,
+                      child: SafeArea(
+                        bottom: false,
+                        child: SizedBox(
+                          height: kToolbarHeight,
+                          child: Center(
+                            child: Text(
+                              'Go',
+                              style: text.headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w600),
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 180),
-                  curve: Curves.easeOutCubic,
-                  offset: _chromeHidden ? const Offset(0, 1) : Offset.zero,
-                  child: Material(
-                    color: scheme.surfaceContainer,
-                    child: SafeArea(
-                      top: false,
-                      child: SizedBox(
-                        height: _bottomBarHeight,
-                        child: Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 8),
-                          child: Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _navTile(context,
-                                  icon: Icons.grid_on_outlined,
-                                  label: 'Play',
-                                  index: 0),
-                              _navTile(context,
-                                  icon: Icons.menu_book_outlined,
-                                  label: 'Learn',
-                                  index: 1),
-                              _navTile(context,
-                                  icon: Icons.rate_review_outlined,
-                                  label: 'Review',
-                                  index: 2),
-                              _navTile(context,
-                                  icon: Icons.settings_outlined,
-                                  label: 'Settings',
-                                  index: 3),
-                            ],
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: AnimatedSlide(
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOutCubic,
+                    offset: _chromeHidden ? const Offset(0, 1) : Offset.zero,
+                    child: Material(
+                      color: scheme.surfaceContainer,
+                      child: SafeArea(
+                        top: false,
+                        child: SizedBox(
+                          height: _bottomBarHeight,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                _navTile(context,
+                                    icon: Icons.grid_on_outlined,
+                                    label: 'Play',
+                                    index: 0),
+                                _navTile(context,
+                                    icon: Icons.menu_book_outlined,
+                                    label: 'Learn',
+                                    index: 1),
+                                _navTile(context,
+                                    icon: Icons.rate_review_outlined,
+                                    label: 'Review',
+                                    index: 2),
+                                _navTile(context,
+                                    icon: Icons.settings_outlined,
+                                    label: 'Settings',
+                                    index: 3),
+                              ],
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
-      ),
       ),
     );
   }
@@ -496,8 +492,10 @@ class _PlayTabState extends State<_PlayTab> {
     } catch (_) {
       you = StoneColor.black;
     }
-    final opponentName =
-        e.opponentLabel.startsWith('AI') ? e.opponentLabel : 'Local';
+    final opponentName = e.opponentLabel.startsWith('Practice') ||
+            e.opponentLabel.startsWith('AI')
+        ? 'Practice'
+        : 'Local';
     final result = e.resultLabel.isEmpty ? '—' : e.resultLabel;
     return RecentGame(
       id: e.id,

@@ -8,8 +8,12 @@ class GameSetup {
   final GameConfig config;
   final Opponent opponent;
   final StoneColor aiColor;
+  final AiDifficulty aiDifficulty;
   const GameSetup(
-      {required this.config, required this.opponent, required this.aiColor});
+      {required this.config,
+      required this.opponent,
+      required this.aiColor,
+      required this.aiDifficulty});
 }
 
 class SetupScreen extends StatefulWidget {
@@ -28,6 +32,7 @@ class _SetupScreenState extends State<SetupScreen> {
   double komi = 7.5;
   int handicap = 0;
   StoneColor aiColor = StoneColor.white;
+  AiDifficulty aiDifficulty = AiDifficulty.beginner;
 
   void _onRulesetChanged(Ruleset r) {
     final defaults = RulesetDefaults.of(r);
@@ -47,7 +52,7 @@ class _SetupScreenState extends State<SetupScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(widget.isAi ? 'Vs. AI' : 'Local Match',
+          Text(widget.isAi ? 'Practice Match' : 'Local Match',
               style:
                   text.labelMedium?.copyWith(color: scheme.onSurfaceVariant)),
           Text('Game setup',
@@ -86,7 +91,15 @@ class _SetupScreenState extends State<SetupScreen> {
                 ..._handicapRows(),
                 if (widget.isAi) ...[
                   const SizedBox(height: 20),
-                  const _SectionLabel('AI PLAYS'),
+                  _ChipSection<AiDifficulty>(
+                    title: 'OPPONENT STYLE',
+                    options: AiDifficulty.values,
+                    selected: aiDifficulty,
+                    label: (v) => v.label,
+                    onSelect: (v) => setState(() => aiDifficulty = v),
+                  ),
+                  const SizedBox(height: 20),
+                  const _SectionLabel('OPPONENT PLAYS'),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -124,6 +137,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 ),
                 opponent: widget.isAi ? Opponent.ai : Opponent.human,
                 aiColor: aiColor,
+                aiDifficulty: aiDifficulty,
               )),
               child: Text('BEGIN GAME',
                   style: text.labelLarge?.copyWith(color: scheme.onPrimary)),

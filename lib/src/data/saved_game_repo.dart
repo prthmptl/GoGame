@@ -25,7 +25,7 @@ class SavedGameRepo {
     final path = p.join(base.path, 'go_game.db');
     final db = await openDatabase(
       path,
-      version: 4,
+      version: 5,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE $_table (
@@ -41,7 +41,9 @@ class SavedGameRepo {
             opponentLabel TEXT NOT NULL DEFAULT 'Local',
             resultLabel TEXT NOT NULL DEFAULT '',
             youColor TEXT NOT NULL DEFAULT 'BLACK',
-            sgfPath TEXT NOT NULL DEFAULT ''
+            sgfPath TEXT NOT NULL DEFAULT '',
+            blackTotal REAL,
+            whiteTotal REAL
           )
         ''');
       },
@@ -53,6 +55,8 @@ class SavedGameRepo {
           "ALTER TABLE saved_games ADD COLUMN youColor TEXT NOT NULL DEFAULT 'BLACK'",
           "ALTER TABLE saved_games ADD COLUMN sgfPath TEXT NOT NULL DEFAULT ''",
           "ALTER TABLE saved_games ADD COLUMN ruleset TEXT NOT NULL DEFAULT 'CHINESE'",
+          "ALTER TABLE saved_games ADD COLUMN blackTotal REAL",
+          "ALTER TABLE saved_games ADD COLUMN whiteTotal REAL",
         ]) {
           try {
             await db.execute(stmt);
@@ -96,6 +100,8 @@ class SavedGameRepo {
     return entity == null ? null : GameSerializer.fromEntity(entity);
   }
 
+  Future<SavedGameEntity?> loadCurrentEntity() => get(_currentId);
+
   Future<void> clearCurrent() async {
     await _db.delete(_table, where: 'id = ?', whereArgs: [_currentId]);
   }
@@ -126,6 +132,7 @@ class SavedGameRepo {
       resultLabel: resultLabel,
       youColor: youColor.name.toUpperCase(),
       sgfPath: f.path,
+      score: score,
     );
     await _db.insert(_table, entity.toRow(),
         conflictAlgorithm: ConflictAlgorithm.replace);

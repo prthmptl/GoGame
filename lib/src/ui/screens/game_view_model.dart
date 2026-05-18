@@ -5,7 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/saved_game_repo.dart';
+import '../../domain/ai/advanced_ai.dart';
 import '../../domain/ai/beginner_ai.dart';
+import '../../domain/ai/go_ai.dart';
+import '../../domain/ai/intermediate_ai.dart';
 import '../../domain/game_state.dart';
 import '../../domain/models.dart';
 import '../../domain/rules.dart';
@@ -24,6 +27,7 @@ class GameUi {
   final bool aiThinking;
   final Opponent opponent;
   final StoneColor aiPlays;
+  final AiDifficulty aiDifficulty;
   final String? sgf;
   final int blackMillis;
   final int whiteMillis;
@@ -39,6 +43,7 @@ class GameUi {
     this.aiThinking = false,
     this.opponent = Opponent.human,
     this.aiPlays = StoneColor.white,
+    this.aiDifficulty = AiDifficulty.beginner,
     this.sgf,
     this.blackMillis = _defaultMainMillis,
     this.whiteMillis = _defaultMainMillis,
@@ -55,6 +60,7 @@ class GameUi {
     bool? aiThinking,
     Opponent? opponent,
     StoneColor? aiPlays,
+    AiDifficulty? aiDifficulty,
     Object? sgf = _sentinel,
     int? blackMillis,
     int? whiteMillis,
@@ -72,6 +78,7 @@ class GameUi {
         aiThinking: aiThinking ?? this.aiThinking,
         opponent: opponent ?? this.opponent,
         aiPlays: aiPlays ?? this.aiPlays,
+        aiDifficulty: aiDifficulty ?? this.aiDifficulty,
         sgf: identical(sgf, _sentinel) ? this.sgf : sgf as String?,
         blackMillis: blackMillis ?? this.blackMillis,
         whiteMillis: whiteMillis ?? this.whiteMillis,
@@ -90,7 +97,7 @@ class GameUi {
 /// Lightweight ChangeNotifier-based viewmodel; mirrors the original Kotlin GameViewModel.
 class GameViewModel extends ChangeNotifier {
   final SavedGameRepo? repo;
-  final BeginnerAi _ai = BeginnerAi();
+  GoAi _ai = BeginnerAi();
 
   GameUi _ui = GameUi(state: GameState.newGame(const GameConfig(boardSize: 9)));
   Timer? _clockTimer;
@@ -105,8 +112,9 @@ class GameViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _opponentLabel(GameUi ui) =>
-      ui.opponent == Opponent.ai ? 'AI' : 'Local';
+  String _opponentLabel(GameUi ui) => ui.opponent == Opponent.ai
+      ? 'Practice · ${ui.aiDifficulty.label}'
+      : 'Local';
 
   StoneColor _youColor(GameUi ui) =>
       ui.opponent == Opponent.ai ? ui.aiPlays.other : StoneColor.black;
@@ -155,12 +163,15 @@ class GameViewModel extends ChangeNotifier {
     required GameConfig config,
     required Opponent opponent,
     StoneColor aiPlays = StoneColor.white,
+    AiDifficulty aiDifficulty = AiDifficulty.beginner,
     bool showHints = false,
   }) {
+    _ai = _buildAi(aiDifficulty);
     _set(GameUi(
       state: GameState.newGame(config),
       opponent: opponent,
       aiPlays: aiPlays,
+      aiDifficulty: aiDifficulty,
       blackMillis: _defaultMainMillis,
       whiteMillis: _defaultMainMillis,
       showHints: showHints,
@@ -169,20 +180,42 @@ class GameViewModel extends ChangeNotifier {
     _maybeTriggerAi();
   }
 
-  void loadGame(GameState state, {Opponent opponent = Opponent.human}) {
-    _set(GameUi(state: state, opponent: opponent));
+  void loadGame(
+    GameState state, {
+    Opponent opponent = Opponent.human,
+    AiDifficulty aiDifficulty = AiDifficulty.beginner,
+  }) {
+    _ai = _buildAi(aiDifficulty);
+    _set(GameUi(
+      state: state,
+      opponent: opponent,
+      aiDifficulty: aiDifficulty,
+    ));
     _startClock();
   }
 
   Future<bool> resumeCurrent() async {
+    final entity = await repo?.loadCurrentEntity();
+    if (entity == null) return false;
     final state = await repo?.loadCurrent();
     if (state == null) return false;
     if (state.status == GameStatus.completed ||
         state.status == GameStatus.resigned) {
       return false;
     }
-    _set(GameUi(state: state, opponent: Opponent.human));
+    final isAi = entity.opponentLabel.startsWith('Practice') ||
+        entity.opponentLabel.startsWith('AI');
+    final aiDifficulty = _difficultyFromLabel(entity.opponentLabel);
+    final youColor = _stoneColorFromLabel(entity.youColor);
+    _ai = _buildAi(aiDifficulty);
+    _set(GameUi(
+      state: state,
+      opponent: isAi ? Opponent.ai : Opponent.human,
+      aiPlays: isAi ? youColor.other : StoneColor.white,
+      aiDifficulty: aiDifficulty,
+    ));
     _startClock();
+    _maybeTriggerAi();
     return true;
   }
 
@@ -300,6 +333,29 @@ class GameViewModel extends ChangeNotifier {
       _play(intent);
     });
   }
+
+  GoAi _buildAi(AiDifficulty difficulty) {
+    switch (difficulty) {
+      case AiDifficulty.beginner:
+        return BeginnerAi();
+      case AiDifficulty.intermediate:
+        return IntermediateAi();
+      case AiDifficulty.advanced:
+        return AdvancedAi();
+    }
+  }
+
+  AiDifficulty _difficultyFromLabel(String label) {
+    for (final difficulty in AiDifficulty.values) {
+      if (label.toLowerCase().contains(difficulty.label.toLowerCase())) {
+        return difficulty;
+      }
+    }
+    return AiDifficulty.beginner;
+  }
+
+  StoneColor _stoneColorFromLabel(String value) =>
+      value.toUpperCase() == 'WHITE' ? StoneColor.white : StoneColor.black;
 
   void toggleDead(Point p) {
     final cur = _ui;

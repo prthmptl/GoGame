@@ -35,6 +35,21 @@ class Point {
 
 enum MoveType { placeStone, pass, resign }
 
+enum AiDifficulty { beginner, intermediate, advanced }
+
+extension AiDifficultyLabel on AiDifficulty {
+  String get label {
+    switch (this) {
+      case AiDifficulty.beginner:
+        return 'Beginner';
+      case AiDifficulty.intermediate:
+        return 'Intermediate';
+      case AiDifficulty.advanced:
+        return 'Advanced';
+    }
+  }
+}
+
 class Move {
   final int moveNumber;
   final StoneColor player;

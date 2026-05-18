@@ -1,6 +1,7 @@
 import '../domain/game_state.dart';
 import '../domain/models.dart';
 import '../domain/rules.dart';
+import '../domain/scoring.dart';
 
 class SavedGameEntity {
   final String id;
@@ -18,6 +19,8 @@ class SavedGameEntity {
   final String resultLabel;
   final String youColor;
   final String sgfPath;
+  final double? blackTotal;
+  final double? whiteTotal;
 
   const SavedGameEntity({
     required this.id,
@@ -33,6 +36,8 @@ class SavedGameEntity {
     this.resultLabel = '',
     this.youColor = 'BLACK',
     this.sgfPath = '',
+    this.blackTotal,
+    this.whiteTotal,
   });
 
   Map<String, Object?> toRow() => {
@@ -49,6 +54,8 @@ class SavedGameEntity {
         'resultLabel': resultLabel,
         'youColor': youColor,
         'sgfPath': sgfPath,
+        'blackTotal': blackTotal,
+        'whiteTotal': whiteTotal,
       };
 
   static SavedGameEntity fromRow(Map<String, Object?> r) => SavedGameEntity(
@@ -65,6 +72,8 @@ class SavedGameEntity {
         resultLabel: r['resultLabel'] as String? ?? '',
         youColor: r['youColor'] as String? ?? 'BLACK',
         sgfPath: r['sgfPath'] as String? ?? '',
+        blackTotal: (r['blackTotal'] as num?)?.toDouble(),
+        whiteTotal: (r['whiteTotal'] as num?)?.toDouble(),
       );
 }
 
@@ -131,6 +140,7 @@ class GameSerializer {
     String resultLabel = '',
     String youColor = 'BLACK',
     String sgfPath = '',
+    ScoreResult? score,
   }) =>
       SavedGameEntity(
         id: id,
@@ -146,6 +156,8 @@ class GameSerializer {
         resultLabel: resultLabel,
         youColor: youColor,
         sgfPath: sgfPath,
+        blackTotal: score?.blackTotal,
+        whiteTotal: score?.whiteTotal,
       );
 
   static GameState fromEntity(SavedGameEntity e) {

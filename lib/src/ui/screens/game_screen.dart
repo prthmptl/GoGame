@@ -103,8 +103,9 @@ class _GameScreenState extends State<GameScreen> {
               child: ZenChip(
                 container: scheme.primary,
                 text: switch (state.status) {
-                  GameStatus.active =>
-                    ui.opponent == Opponent.ai ? 'VS AI' : 'LOCAL MATCH',
+                  GameStatus.active => ui.opponent == Opponent.ai
+                      ? 'PRACTICE MATCH'
+                      : 'LOCAL MATCH',
                   GameStatus.scoring => 'SCORING',
                   GameStatus.completed =>
                     ui.timeoutLoser != null ? 'TIMEOUT' : 'COMPLETED',
@@ -115,7 +116,9 @@ class _GameScreenState extends State<GameScreen> {
             const SizedBox(height: 8),
             _PlayerCard(
               color: ui.opponent == Opponent.ai ? ui.aiPlays : StoneColor.white,
-              name: ui.opponent == Opponent.ai ? 'AI' : 'Opponent',
+              name: ui.opponent == Opponent.ai
+                  ? '${ui.aiDifficulty.label} opponent'
+                  : 'Opponent',
               time: GameViewModel.formatTime(
                 ((ui.opponent == Opponent.ai ? ui.aiPlays : StoneColor.white) ==
                         StoneColor.black)
@@ -176,7 +179,7 @@ class _GameScreenState extends State<GameScreen> {
             ],
             if (ui.aiThinking) ...[
               const SizedBox(height: 8),
-              Text('AI is thinking…',
+              Text('Opponent is thinking…',
                   style: text.labelMedium
                       ?.copyWith(color: scheme.onSurfaceVariant)),
             ],

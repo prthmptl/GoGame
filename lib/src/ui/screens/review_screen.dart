@@ -10,8 +10,10 @@ import '../../data/settings_store.dart';
 import '../../domain/game_state.dart';
 import '../../domain/models.dart';
 import '../../domain/rules.dart';
+import '../../domain/scoring.dart';
 import '../../sgf/sgf_import.dart';
 import '../board/board_canvas.dart';
+import '../board/mini_stone.dart';
 import '../components/zen_components.dart';
 
 class ReviewScreen extends StatefulWidget {
@@ -33,6 +35,10 @@ class ReviewScreen extends StatefulWidget {
 class _ReviewScreenState extends State<ReviewScreen> {
   GameState? _loaded;
   String? _sgfText;
+  String? _opponentStyle;
+  String? _resultLabel;
+  double? _blackTotal;
+  double? _whiteTotal;
   int _index = 0;
 
   @override
@@ -63,6 +69,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
         setState(() {
           _sgfText = text;
           _loaded = state;
+          _opponentStyle = _opponentStyleFromLabel(entity?.opponentLabel);
+          _resultLabel = (entity?.resultLabel.isNotEmpty ?? false)
+              ? entity!.resultLabel
+              : _resultFromSgf(text);
+          _blackTotal = entity?.blackTotal;
+          _whiteTotal = entity?.whiteTotal;
           _index = state.history.length;
         });
       } catch (_) {
@@ -91,8 +103,32 @@ class _ReviewScreenState extends State<ReviewScreen> {
     setState(() {
       _sgfText = text;
       _loaded = state;
+      _opponentStyle = null;
+      _resultLabel = _resultFromSgf(text);
+      _blackTotal = null;
+      _whiteTotal = null;
       _index = state.history.length;
     });
+  }
+
+  String? _opponentStyleFromLabel(String? label) {
+    if (label == null) return null;
+    for (final difficulty in AiDifficulty.values) {
+      if (label.toLowerCase().contains(difficulty.label.toLowerCase())) {
+        return difficulty.label;
+      }
+    }
+    return null;
+  }
+
+  String? _resultFromSgf(String text) =>
+      RegExp(r'RE\[([^\]]+)]').firstMatch(text)?.group(1);
+
+  ScoreResult? _matchingFallbackScore(GameState state) {
+    final result = _resultLabel;
+    if (result == null || result.isEmpty) return null;
+    final score = Scoring.score(state);
+    return score.resultString == result ? score : null;
   }
 
   Future<void> _exportSgf() async {
@@ -194,6 +230,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final moveNumbers = widget.settings.value.showMoveNumbers
         ? _moveNumberMap(replayed)
         : const <Point, int>{};
+    final fallbackScore =
+        (_blackTotal == null || _whiteTotal == null)
+            ? _matchingFallbackScore(loaded)
+            : null;
+    final reviewBlackTotal = _blackTotal ?? fallbackScore?.blackTotal;
+    final reviewWhiteTotal = _whiteTotal ?? fallbackScore?.whiteTotal;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -214,14 +256,6 @@ class _ReviewScreenState extends State<ReviewScreen> {
                       Text('Move $moveIndex / $total',
                           style: text.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${replayed.config.ruleset.label} rules · '
-                        '${replayed.config.boardSize}×${replayed.config.boardSize} · '
-                        'komi ${replayed.config.komi.toStringAsFixed(1)}',
-                        style: text.labelSmall
-                            ?.copyWith(color: scheme.onSurfaceVariant),
-                      ),
                     ],
                   ),
                 ),
@@ -235,6 +269,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   onPressed: () => setState(() {
                     _loaded = null;
                     _sgfText = null;
+                    _opponentStyle = null;
+                    _resultLabel = null;
+                    _blackTotal = null;
+                    _whiteTotal = null;
                   }),
                   icon: const Icon(Icons.file_open),
                   tooltip: 'Open another',
@@ -281,8 +319,225 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   icon: const Icon(Icons.last_page)),
             ],
           ),
+          const SizedBox(height: 10),
+          _ReviewSummaryCard(
+            config: loaded.config,
+            totalMoves: total,
+            opponentStyle: _opponentStyle,
+            resultLabel: _resultLabel,
+            blackTotal: reviewBlackTotal,
+            whiteTotal: reviewWhiteTotal,
+          ),
         ],
       ),
     );
   }
 }
+
+class _ReviewSummaryCard extends StatelessWidget {
+  final GameConfig config;
+  final int totalMoves;
+  final String? opponentStyle;
+  final String? resultLabel;
+  final double? blackTotal;
+  final double? whiteTotal;
+
+  const _ReviewSummaryCard({
+    required this.config,
+    required this.totalMoves,
+    required this.opponentStyle,
+    required this.resultLabel,
+    required this.blackTotal,
+    required this.whiteTotal,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final outcome = _ReviewOutcome.fromLabel(resultLabel);
+    final hasTotals = blackTotal != null && whiteTotal != null;
+
+    return ZenCard(
+      container: scheme.surfaceContainerLow,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Final result',
+                        style: text.labelMedium
+                            ?.copyWith(color: scheme.onSurfaceVariant)),
+                    Text(
+                      outcome.headline,
+                      style: text.headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      outcome.detail,
+                      style: text.bodyMedium
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
+              ),
+              if (resultLabel != null && resultLabel!.isNotEmpty)
+                ZenChip(
+                  text: resultLabel!,
+                  container: scheme.primaryContainer,
+                  contentColor: scheme.onPrimaryContainer,
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHigh,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: hasTotals
+                ? Row(
+                    children: [
+                      Expanded(
+                        child: _ScoreTotal(
+                          color: StoneColor.black,
+                          value: blackTotal!,
+                        ),
+                      ),
+                      Container(
+                        width: 1,
+                        height: 42,
+                        color: scheme.outlineVariant,
+                      ),
+                      Expanded(
+                        child: _ScoreTotal(
+                          color: StoneColor.white,
+                          value: whiteTotal!,
+                        ),
+                      ),
+                    ],
+                  )
+                : Text(
+                    _totalsUnavailableText(resultLabel),
+                    style: text.bodyMedium
+                        ?.copyWith(color: scheme.onSurfaceVariant),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              ZenChip(text: '${config.boardSize}×${config.boardSize}'),
+              ZenChip(text: config.ruleset.label),
+              ZenChip(text: 'Komi ${config.komi.toStringAsFixed(1)}'),
+              ZenChip(text: '$totalMoves moves'),
+              if (opponentStyle != null)
+                ZenChip(text: '$opponentStyle style'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _totalsUnavailableText(String? label) {
+    final match = RegExp(r'^[BW]\+(.+)$').firstMatch(label ?? '');
+    final suffix = match?.group(1)?.toUpperCase();
+    return switch (suffix) {
+      'R' => 'No point total — this game ended by resignation.',
+      'T' => 'No point total — this game ended on time.',
+      _ => 'Point totals are unavailable for this record.',
+    };
+  }
+}
+
+class _ScoreTotal extends StatelessWidget {
+  final StoneColor color;
+  final double value;
+
+  const _ScoreTotal({
+    required this.color,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final label = color == StoneColor.black ? 'Black' : 'White';
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            MiniStone(color: color, size: 18),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style:
+                  text.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _formatPoints(value),
+          style: text.headlineSmall?.copyWith(fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
+  }
+}
+
+class _ReviewOutcome {
+  final String headline;
+  final String detail;
+
+  const _ReviewOutcome(this.headline, this.detail);
+
+  factory _ReviewOutcome.fromLabel(String? label) {
+    final value = label?.trim();
+    if (value == null || value.isEmpty) {
+      return const _ReviewOutcome(
+        'Result unavailable',
+        'No final result was recorded for this game.',
+      );
+    }
+    if (value.toLowerCase() == 'draw') {
+      return const _ReviewOutcome('Draw', 'Both players finished level.');
+    }
+
+    final match = RegExp(r'^([BW])\+(.+)$').firstMatch(value);
+    if (match == null) {
+      return _ReviewOutcome(value, 'Final result');
+    }
+
+    final winner = match.group(1) == 'B' ? 'Black' : 'White';
+    final suffix = match.group(2)!;
+    final detail = switch (suffix.toUpperCase()) {
+      'R' => 'by resignation',
+      'T' => 'on time',
+      _ => _numericMarginDetail(suffix),
+    };
+    return _ReviewOutcome('$winner wins', detail);
+  }
+
+  static String _numericMarginDetail(String value) {
+    final margin = double.tryParse(value);
+    if (margin == null) return 'Final result';
+    return 'by ${_formatPoints(margin)} points';
+  }
+}
+
+String _formatPoints(double value) =>
+    value == value.roundToDouble()
+        ? value.toStringAsFixed(0)
+        : value.toStringAsFixed(1);
