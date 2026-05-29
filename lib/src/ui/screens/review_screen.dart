@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -9,11 +10,15 @@ import '../../data/saved_game_repo.dart';
 import '../../data/settings_store.dart';
 import '../../domain/game_state.dart';
 import '../../domain/models.dart';
+import '../../domain/review/review_analyzer.dart';
+import '../../domain/review/variation_tree.dart';
 import '../../domain/rules.dart';
 import '../../domain/scoring.dart';
 import '../../sgf/sgf_import.dart';
+import '../../sgf/sgf_tree.dart';
 import '../board/board_canvas.dart';
 import '../board/mini_stone.dart';
+import '../components/sparkline.dart';
 import '../components/zen_components.dart';
 
 class ReviewScreen extends StatefulWidget {
@@ -39,7 +44,28 @@ class _ReviewScreenState extends State<ReviewScreen> {
   String? _resultLabel;
   double? _blackTotal;
   double? _whiteTotal;
-  int _index = 0;
+
+  VariationTree? _tree;
+  List<VariationNode> _path = const [];
+  bool _exploreMode = false;
+
+  ReviewReport? _report;
+  bool _analyzing = false;
+
+  int get _index => _path.isEmpty ? 0 : _path.length - 1;
+
+  VariationNode? get _currentNode => _path.isEmpty ? null : _path.last;
+
+  bool get _onMainLine {
+    if (_path.length < 2) return true;
+    var node = _tree?.root;
+    for (var i = 1; i < _path.length; i++) {
+      if (node == null || node.children.isEmpty) return false;
+      if (!identical(node.children.first, _path[i])) return false;
+      node = node.children.first;
+    }
+    return true;
+  }
 
   @override
   void initState() {
@@ -65,22 +91,44 @@ class _ReviewScreenState extends State<ReviewScreen> {
       try {
         final text = await File(path).readAsString();
         final state = SgfImport.import(text);
+        final tree = _treeFor(text, state);
         if (!mounted) return;
         setState(() {
           _sgfText = text;
           _loaded = state;
+          _tree = tree;
+          _path = _mainLinePath(tree);
           _opponentStyle = _opponentStyleFromLabel(entity?.opponentLabel);
           _resultLabel = (entity?.resultLabel.isNotEmpty ?? false)
               ? entity!.resultLabel
               : _resultFromSgf(text);
           _blackTotal = entity?.blackTotal;
           _whiteTotal = entity?.whiteTotal;
-          _index = state.history.length;
+          _report = null;
         });
       } catch (_) {
         // ignore corrupt SGF
       }
     }
+  }
+
+  VariationTree _treeFor(String sgfText, GameState fallback) {
+    try {
+      final sgfRoot = SgfTreeParser.parse(sgfText);
+      return VariationTreeBuilder.build(sgfRoot);
+    } catch (_) {
+      return VariationTreeBuilder.fromHistory(fallback);
+    }
+  }
+
+  List<VariationNode> _mainLinePath(VariationTree tree) {
+    final path = <VariationNode>[tree.root];
+    var node = tree.root;
+    while (node.children.isNotEmpty) {
+      node = node.children.first;
+      path.add(node);
+    }
+    return path;
   }
 
   Future<void> _pickSgf() async {
@@ -100,14 +148,17 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
     if (!mounted) return;
     final state = SgfImport.import(text);
+    final tree = _treeFor(text, state);
     setState(() {
       _sgfText = text;
       _loaded = state;
+      _tree = tree;
+      _path = _mainLinePath(tree);
       _opponentStyle = null;
       _resultLabel = _resultFromSgf(text);
       _blackTotal = null;
       _whiteTotal = null;
-      _index = state.history.length;
+      _report = null;
     });
   }
 
@@ -129,6 +180,94 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (result == null || result.isEmpty) return null;
     final score = Scoring.score(state);
     return score.resultString == result ? score : null;
+  }
+
+  void _goToStart() {
+    final tree = _tree;
+    if (tree == null) return;
+    setState(() => _path = [tree.root]);
+  }
+
+  void _goToEnd() {
+    final tree = _tree;
+    if (tree == null) return;
+    setState(() => _path = _mainLinePath(tree));
+  }
+
+  void _stepBack() {
+    if (_path.length <= 1) return;
+    setState(() => _path = _path.sublist(0, _path.length - 1));
+  }
+
+  void _stepForward() {
+    final node = _currentNode;
+    if (node == null || node.children.isEmpty) return;
+    setState(() => _path = [..._path, node.children.first]);
+  }
+
+  void _jumpTo(int targetDepth) {
+    final tree = _tree;
+    if (tree == null) return;
+    final clamped = targetDepth.clamp(0, _mainLineDepth(tree));
+    final path = <VariationNode>[tree.root];
+    var node = tree.root;
+    for (var i = 0; i < clamped && node.children.isNotEmpty; i++) {
+      node = node.children.first;
+      path.add(node);
+    }
+    setState(() => _path = path);
+  }
+
+  void _jumpToSibling(VariationNode sibling) {
+    if (_path.length < 2) return;
+    setState(() => _path = [..._path.sublist(0, _path.length - 1), sibling]);
+  }
+
+  void _onBoardTap(Point point) {
+    final tree = _tree;
+    final node = _currentNode;
+    if (tree == null || node == null) return;
+    final state = tree.buildStateTo(node);
+    if (state == null) return;
+    if (state.board.cellAt(point) != CellState.empty) return;
+    final probe = Rules.apply(state, MoveIntent.place(point));
+    if (!probe.isAccepted) return;
+    final move = probe.move!;
+    final next = tree.addExploration(node, move);
+    setState(() => _path = [..._path, next]);
+  }
+
+  int _mainLineDepth(VariationTree tree) {
+    var depth = 0;
+    var node = tree.root;
+    while (node.children.isNotEmpty) {
+      node = node.children.first;
+      depth++;
+    }
+    return depth;
+  }
+
+  List<VariationNode> _siblingChoicesAtCurrent() {
+    if (_path.length < 2) return const [];
+    final parent = _path[_path.length - 2];
+    if (parent.children.length <= 1) return const [];
+    return parent.children;
+  }
+
+  Future<void> _runAnalysis() async {
+    final loaded = _loaded;
+    if (loaded == null || _analyzing) return;
+    setState(() {
+      _analyzing = true;
+      _report = null;
+    });
+    try {
+      final report = await ReviewAnalyzer().analyze(loaded);
+      if (!mounted) return;
+      setState(() => _report = report);
+    } finally {
+      if (mounted) setState(() => _analyzing = false);
+    }
   }
 
   Future<void> _exportSgf() async {
@@ -224,9 +363,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
       );
     }
 
-    final total = loaded.history.length;
-    final moveIndex = _index.clamp(0, total);
-    final replayed = _replay(loaded.config, loaded, moveIndex);
+    final tree = _tree;
+    final mainLineLength = tree == null ? loaded.history.length : _mainLineDepth(tree);
+    final pathDepth = _index;
+    final currentNode = _currentNode;
+    final replayed = (tree != null && currentNode != null)
+        ? (tree.buildStateTo(currentNode) ?? loaded)
+        : _replay(loaded.config, loaded, pathDepth);
     final moveNumbers = widget.settings.value.showMoveNumbers
         ? _moveNumberMap(replayed)
         : const <Point, int>{};
@@ -236,6 +379,20 @@ class _ReviewScreenState extends State<ReviewScreen> {
             : null;
     final reviewBlackTotal = _blackTotal ?? fallbackScore?.blackTotal;
     final reviewWhiteTotal = _whiteTotal ?? fallbackScore?.whiteTotal;
+
+    final analysis = _report;
+    final onMainLine = _onMainLine;
+    MoveAnalysis? currentAnalysis;
+    if (onMainLine &&
+        analysis != null &&
+        pathDepth > 0 &&
+        pathDepth <= analysis.moves.length) {
+      currentAnalysis = analysis.moves[pathDepth - 1];
+    }
+    final recommendedMarker = (currentAnalysis?.recommended != null)
+        ? <Point>{currentAnalysis!.recommended!}
+        : const <Point>{};
+    final siblings = _siblingChoicesAtCurrent();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -250,10 +407,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Replay',
+                      Text(onMainLine ? 'Replay' : 'Variation',
                           style: text.labelMedium
                               ?.copyWith(color: scheme.onSurfaceVariant)),
-                      Text('Move $moveIndex / $total',
+                      Text('Move $pathDepth / $mainLineLength',
                           style: text.headlineSmall
                               ?.copyWith(fontWeight: FontWeight.w600)),
                     ],
@@ -273,6 +430,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     _resultLabel = null;
                     _blackTotal = null;
                     _whiteTotal = null;
+                    _tree = null;
+                    _path = const [];
+                    _exploreMode = false;
+                    _report = null;
                   }),
                   icon: const Icon(Icons.file_open),
                   tooltip: 'Open another',
@@ -288,41 +449,67 @@ class _ReviewScreenState extends State<ReviewScreen> {
               overlay: BoardOverlay(
                 lastMove: replayed.lastMove?.point,
                 moveNumbers: moveNumbers,
+                markers: recommendedMarker,
               ),
               appearance: _appearance(),
+              onTap: _exploreMode ? _onBoardTap : null,
             ),
           ),
           Slider(
-            value: moveIndex.toDouble(),
-            onChanged: (v) => setState(() => _index = v.toInt()),
+            value: pathDepth.toDouble(),
+            onChanged: (v) => _jumpTo(v.toInt()),
             min: 0,
-            max: total.toDouble().clamp(1, double.infinity),
-            divisions: total > 0 ? total : null,
+            max: math.max(1, mainLineLength).toDouble(),
+            divisions: mainLineLength > 0 ? mainLineLength : null,
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               IconButton(
-                  onPressed: () => setState(() => _index = 0),
+                  onPressed: _goToStart,
                   icon: const Icon(Icons.first_page)),
               IconButton(
-                onPressed: _index > 0 ? () => setState(() => _index--) : null,
+                onPressed: _index > 0 ? _stepBack : null,
                 icon: const Icon(Icons.navigate_before),
               ),
               IconButton(
-                onPressed:
-                    _index < total ? () => setState(() => _index++) : null,
+                onPressed: (currentNode?.children.isNotEmpty ?? false)
+                    ? _stepForward
+                    : null,
                 icon: const Icon(Icons.navigate_next),
               ),
               IconButton(
-                  onPressed: () => setState(() => _index = total),
+                  onPressed: _goToEnd,
                   icon: const Icon(Icons.last_page)),
+              IconButton(
+                tooltip: _exploreMode ? 'Stop exploring' : 'Try a move',
+                onPressed: () =>
+                    setState(() => _exploreMode = !_exploreMode),
+                icon: Icon(_exploreMode ? Icons.edit_off : Icons.edit),
+                color: _exploreMode ? scheme.primary : null,
+              ),
             ],
+          ),
+          if (siblings.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            _VariationsCard(
+              siblings: siblings,
+              boardSize: replayed.board.size,
+              onSelect: _jumpToSibling,
+            ),
+          ],
+          const SizedBox(height: 10),
+          _AnalysisCard(
+            report: analysis,
+            analyzing: _analyzing,
+            cursor: pathDepth - 1,
+            currentMove: currentAnalysis,
+            onAnalyze: _runAnalysis,
           ),
           const SizedBox(height: 10),
           _ReviewSummaryCard(
             config: loaded.config,
-            totalMoves: total,
+            totalMoves: mainLineLength,
             opponentStyle: _opponentStyle,
             resultLabel: _resultLabel,
             blackTotal: reviewBlackTotal,
@@ -541,3 +728,291 @@ String _formatPoints(double value) =>
     value == value.roundToDouble()
         ? value.toStringAsFixed(0)
         : value.toStringAsFixed(1);
+
+class _AnalysisCard extends StatelessWidget {
+  final ReviewReport? report;
+  final bool analyzing;
+  final int cursor;
+  final MoveAnalysis? currentMove;
+  final VoidCallback onAnalyze;
+
+  const _AnalysisCard({
+    required this.report,
+    required this.analyzing,
+    required this.cursor,
+    required this.currentMove,
+    required this.onAnalyze,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    if (analyzing) {
+      return ZenCard(
+        container: scheme.surfaceContainerLow,
+        child: Row(
+          children: [
+            const SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text('Analyzing moves…',
+                  style: text.bodyMedium
+                      ?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+          ],
+        ),
+      );
+    }
+    final r = report;
+    if (r == null) {
+      return ZenCard(
+        container: scheme.surfaceContainerLow,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('AI Review', style: text.headlineSmall),
+            const SizedBox(height: 4),
+            Text(
+              'Run the local engine over the game to find blunders, mistakes, and better moves.',
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 48,
+              child: FilledButton.icon(
+                onPressed: onAnalyze,
+                icon: const Icon(Icons.auto_awesome),
+                label: const Text('ANALYZE GAME'),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    final values = r.moves.map((m) => m.blackLead).toList(growable: false);
+    final maxAbs = values.fold<double>(
+        10, (acc, v) => v.abs() > acc ? v.abs() : acc);
+    return ZenCard(
+      container: scheme.surfaceContainerLow,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text('AI Review',
+                    style: text.headlineSmall),
+              ),
+              TextButton.icon(
+                onPressed: onAnalyze,
+                icon: const Icon(Icons.refresh, size: 18),
+                label: const Text('Re-run'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Row(
+            children: [
+              _CountChip(
+                  label: 'Blunders',
+                  value: r.blunders,
+                  color: scheme.error),
+              const SizedBox(width: 8),
+              _CountChip(
+                  label: 'Mistakes',
+                  value: r.mistakes,
+                  color: const Color(0xFFB87E2A)),
+              const SizedBox(width: 8),
+              _CountChip(
+                  label: 'Inaccuracies',
+                  value: r.inaccuracies,
+                  color: scheme.onSurfaceVariant),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Sparkline(values: values, cursor: cursor, maxAbs: maxAbs),
+          const SizedBox(height: 12),
+          if (currentMove != null)
+            _CurrentMoveRow(move: currentMove!)
+          else
+            Text(
+              'Step through the moves to see per-move feedback.',
+              style:
+                  text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  final String label;
+  final int value;
+  final Color color;
+
+  const _CountChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label.toUpperCase(),
+                style: text.labelSmall
+                    ?.copyWith(color: color, letterSpacing: 1.2)),
+            const SizedBox(height: 2),
+            Text('$value',
+                style: text.headlineSmall?.copyWith(color: color)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CurrentMoveRow extends StatelessWidget {
+  final MoveAnalysis move;
+  const _CurrentMoveRow({required this.move});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final color = _qualityColor(move.quality, scheme);
+    return Row(
+      children: [
+        MiniStone(color: move.player, size: 22),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${move.player == StoneColor.black ? 'Black' : 'White'} · Move ${move.moveNumber}',
+                style: text.labelSmall
+                    ?.copyWith(color: scheme.onSurfaceVariant, letterSpacing: 1.1),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                move.comment ?? _defaultComment(move),
+                style: text.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.16),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Text(
+            move.quality.label,
+            style: text.labelSmall?.copyWith(color: color),
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _defaultComment(MoveAnalysis move) {
+    if (move.quality == MoveQuality.best) return 'Matched the AI top move.';
+    if (move.pointsLost == 0) return 'Reasonable choice.';
+    return '${move.pointsLost} points behind the AI top choice.';
+  }
+
+  static Color _qualityColor(MoveQuality q, ColorScheme scheme) =>
+      switch (q) {
+        MoveQuality.best => scheme.primary,
+        MoveQuality.good => scheme.onSurfaceVariant,
+        MoveQuality.inaccuracy => const Color(0xFFB87E2A),
+        MoveQuality.mistake => const Color(0xFFC65D1B),
+        MoveQuality.blunder => scheme.error,
+        MoveQuality.notApplicable => scheme.onSurfaceVariant,
+      };
+}
+
+class _VariationsCard extends StatelessWidget {
+  final List<VariationNode> siblings;
+  final int boardSize;
+  final ValueChanged<VariationNode> onSelect;
+
+  const _VariationsCard({
+    required this.siblings,
+    required this.boardSize,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return ZenCard(
+      container: scheme.surfaceContainerLow,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Variations', style: text.headlineSmall),
+          const SizedBox(height: 4),
+          Text(
+            'This move has ${siblings.length} branches. Tap one to jump in.',
+            style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < siblings.length; i++)
+                ActionChip(
+                  avatar: MiniStone(
+                    color: siblings[i].move?.player ?? StoneColor.black,
+                    size: 16,
+                  ),
+                  label: Text(_label(siblings[i], i)),
+                  onPressed: () => onSelect(siblings[i]),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _label(VariationNode node, int index) {
+    final move = node.move;
+    if (move == null) return 'Root';
+    final tag = index == 0 ? 'Main' : 'Var $index';
+    if (move.type != MoveType.placeStone || move.point == null) {
+      return '$tag · pass';
+    }
+    return '$tag · ${_coord(move.point!, boardSize)}';
+  }
+
+  static String _coord(Point p, int size) {
+    const skipI = 8;
+    final col = p.col;
+    final letter = String.fromCharCode(0x41 + (col < skipI ? col : col + 1));
+    final row = size - p.row;
+    return '$letter$row';
+  }
+}

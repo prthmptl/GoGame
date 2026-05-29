@@ -100,6 +100,15 @@ extension RulesetLabel on Ruleset {
 
 enum ScoringMethod { area, territory }
 
+enum GameVariant { standard, atariGo }
+
+extension GameVariantLabel on GameVariant {
+  String get label => switch (this) {
+        GameVariant.standard => 'Standard',
+        GameVariant.atariGo => 'Atari Go',
+      };
+}
+
 enum SuperkoMode {
   /// Only the basic immediate-recapture ko is enforced (via [GameState.koPoint]).
   /// Used by Japanese / Korean rulesets.
@@ -182,6 +191,7 @@ class GameConfig {
   final int handicap;
   final bool allowSuicide;
   final SuperkoMode superkoMode;
+  final GameVariant variant;
 
   const GameConfig({
     required this.boardSize,
@@ -190,6 +200,7 @@ class GameConfig {
     this.handicap = 0,
     this.allowSuicide = false,
     this.superkoMode = SuperkoMode.positional,
+    this.variant = GameVariant.standard,
   });
 
   GameConfig copyWith({
@@ -199,6 +210,7 @@ class GameConfig {
     int? handicap,
     bool? allowSuicide,
     SuperkoMode? superkoMode,
+    GameVariant? variant,
   }) =>
       GameConfig(
         boardSize: boardSize ?? this.boardSize,
@@ -207,6 +219,7 @@ class GameConfig {
         handicap: handicap ?? this.handicap,
         allowSuicide: allowSuicide ?? this.allowSuicide,
         superkoMode: superkoMode ?? this.superkoMode,
+        variant: variant ?? this.variant,
       );
 }
 

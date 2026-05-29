@@ -27,6 +27,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/puzzles/puzzles.json
+    - assets/drills/drills.json
+    - assets/lessons/courses.json
 
 flutter_launcher_icons:
   android: "ic_launcher"

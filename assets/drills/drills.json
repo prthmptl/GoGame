@@ -1,0 +1,72 @@
+[
+  {
+    "id": "d001",
+    "title": "Take the stone",
+    "description": "Capture the white stone before white can escape. First capture wins.",
+    "category": "capture",
+    "boardSize": 9,
+    "initial": {
+      "black": ["dc", "cd"],
+      "white": ["dd"]
+    },
+    "playerColor": "black",
+    "aiLevel": "beginner",
+    "requiredWins": 3
+  },
+  {
+    "id": "d002",
+    "title": "Edge hunt",
+    "description": "White is pinned near the edge. Press the advantage and capture.",
+    "category": "capture",
+    "boardSize": 9,
+    "initial": {
+      "black": ["ba", "da", "bb", "db"],
+      "white": ["ca", "cb"]
+    },
+    "playerColor": "black",
+    "aiLevel": "beginner",
+    "requiredWins": 3
+  },
+  {
+    "id": "d003",
+    "title": "Stay alive",
+    "description": "Your two stones are under pressure. Hold them together until the AI gives up.",
+    "category": "escape",
+    "boardSize": 9,
+    "initial": {
+      "black": ["ee", "ef"],
+      "white": ["de", "ed", "fe"]
+    },
+    "playerColor": "black",
+    "aiLevel": "beginner",
+    "requiredWins": 3
+  },
+  {
+    "id": "d004",
+    "title": "Crosscut",
+    "description": "Cross-cut tactics. Capture the loose stone before it can extend.",
+    "category": "attack",
+    "boardSize": 9,
+    "initial": {
+      "black": ["dd", "ee"],
+      "white": ["de", "ed"]
+    },
+    "playerColor": "black",
+    "aiLevel": "intermediate",
+    "requiredWins": 3
+  },
+  {
+    "id": "d005",
+    "title": "Corner kill",
+    "description": "The corner is yours if you read the right vital point.",
+    "category": "attack",
+    "boardSize": 9,
+    "initial": {
+      "black": ["ca", "cb", "bc", "cc"],
+      "white": ["aa", "ab", "ba"]
+    },
+    "playerColor": "black",
+    "aiLevel": "intermediate",
+    "requiredWins": 3
+  }
+]

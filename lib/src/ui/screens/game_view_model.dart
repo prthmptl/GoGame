@@ -9,6 +9,8 @@ import '../../domain/ai/advanced_ai.dart';
 import '../../domain/ai/beginner_ai.dart';
 import '../../domain/ai/go_ai.dart';
 import '../../domain/ai/intermediate_ai.dart';
+import '../../domain/clock/clock_controller.dart';
+import '../../domain/clock/time_control.dart';
 import '../../domain/game_state.dart';
 import '../../domain/models.dart';
 import '../../domain/rules.dart';
@@ -17,7 +19,7 @@ import '../../sgf/sgf.dart';
 
 enum Opponent { human, ai }
 
-const _defaultMainMillis = 10 * 60 * 1000;
+const _defaultTimeControl = TimeControl.absolute(mainSeconds: 10 * 60);
 
 class GameUi {
   final GameState state;
@@ -28,9 +30,11 @@ class GameUi {
   final Opponent opponent;
   final StoneColor aiPlays;
   final AiDifficulty aiDifficulty;
+  final String? botName;
   final String? sgf;
-  final int blackMillis;
-  final int whiteMillis;
+  final TimeControl timeControl;
+  final ClockSnapshot blackClock;
+  final ClockSnapshot whiteClock;
   final StoneColor? timeoutLoser;
   final Point? pendingPoint;
   final bool showHints;
@@ -44,9 +48,11 @@ class GameUi {
     this.opponent = Opponent.human,
     this.aiPlays = StoneColor.white,
     this.aiDifficulty = AiDifficulty.beginner,
+    this.botName,
     this.sgf,
-    this.blackMillis = _defaultMainMillis,
-    this.whiteMillis = _defaultMainMillis,
+    required this.timeControl,
+    required this.blackClock,
+    required this.whiteClock,
     this.timeoutLoser,
     this.pendingPoint,
     this.showHints = false,
@@ -61,9 +67,11 @@ class GameUi {
     Opponent? opponent,
     StoneColor? aiPlays,
     AiDifficulty? aiDifficulty,
+    Object? botName = _sentinel,
     Object? sgf = _sentinel,
-    int? blackMillis,
-    int? whiteMillis,
+    TimeControl? timeControl,
+    ClockSnapshot? blackClock,
+    ClockSnapshot? whiteClock,
     Object? timeoutLoser = _sentinel,
     Object? pendingPoint = _sentinel,
     bool? showHints,
@@ -79,9 +87,12 @@ class GameUi {
         opponent: opponent ?? this.opponent,
         aiPlays: aiPlays ?? this.aiPlays,
         aiDifficulty: aiDifficulty ?? this.aiDifficulty,
+        botName:
+            identical(botName, _sentinel) ? this.botName : botName as String?,
         sgf: identical(sgf, _sentinel) ? this.sgf : sgf as String?,
-        blackMillis: blackMillis ?? this.blackMillis,
-        whiteMillis: whiteMillis ?? this.whiteMillis,
+        timeControl: timeControl ?? this.timeControl,
+        blackClock: blackClock ?? this.blackClock,
+        whiteClock: whiteClock ?? this.whiteClock,
         timeoutLoser: identical(timeoutLoser, _sentinel)
             ? this.timeoutLoser
             : timeoutLoser as StoneColor?,
@@ -98,8 +109,14 @@ class GameUi {
 class GameViewModel extends ChangeNotifier {
   final SavedGameRepo? repo;
   GoAi _ai = BeginnerAi();
+  ClockController _clock = ClockController(_defaultTimeControl);
 
-  GameUi _ui = GameUi(state: GameState.newGame(const GameConfig(boardSize: 9)));
+  GameUi _ui = GameUi(
+    state: GameState.newGame(const GameConfig(boardSize: 9)),
+    timeControl: _defaultTimeControl,
+    blackClock: ClockController(_defaultTimeControl).black,
+    whiteClock: ClockController(_defaultTimeControl).white,
+  );
   Timer? _clockTimer;
   int _lastTickMillis = 0;
 
@@ -112,9 +129,12 @@ class GameViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _opponentLabel(GameUi ui) => ui.opponent == Opponent.ai
-      ? 'Practice · ${ui.aiDifficulty.label}'
-      : 'Local';
+  String _opponentLabel(GameUi ui) {
+    if (ui.opponent != Opponent.ai) return 'Local';
+    final name = ui.botName;
+    if (name != null && name.isNotEmpty) return 'Practice · $name';
+    return 'Practice · ${ui.aiDifficulty.label}';
+  }
 
   StoneColor _youColor(GameUi ui) =>
       ui.opponent == Opponent.ai ? ui.aiPlays.other : StoneColor.black;
@@ -164,16 +184,21 @@ class GameViewModel extends ChangeNotifier {
     required Opponent opponent,
     StoneColor aiPlays = StoneColor.white,
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
+    TimeControl timeControl = _defaultTimeControl,
+    String? botName,
     bool showHints = false,
   }) {
     _ai = _buildAi(aiDifficulty);
+    _clock = ClockController(timeControl, active: StoneColor.black);
     _set(GameUi(
       state: GameState.newGame(config),
       opponent: opponent,
       aiPlays: aiPlays,
       aiDifficulty: aiDifficulty,
-      blackMillis: _defaultMainMillis,
-      whiteMillis: _defaultMainMillis,
+      botName: botName,
+      timeControl: timeControl,
+      blackClock: _clock.black,
+      whiteClock: _clock.white,
       showHints: showHints,
     ));
     _startClock();
@@ -184,12 +209,17 @@ class GameViewModel extends ChangeNotifier {
     GameState state, {
     Opponent opponent = Opponent.human,
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
+    TimeControl timeControl = _defaultTimeControl,
   }) {
     _ai = _buildAi(aiDifficulty);
+    _clock = ClockController(timeControl, active: state.currentPlayer);
     _set(GameUi(
       state: state,
       opponent: opponent,
       aiDifficulty: aiDifficulty,
+      timeControl: timeControl,
+      blackClock: _clock.black,
+      whiteClock: _clock.white,
     ));
     _startClock();
   }
@@ -208,11 +238,15 @@ class GameViewModel extends ChangeNotifier {
     final aiDifficulty = _difficultyFromLabel(entity.opponentLabel);
     final youColor = _stoneColorFromLabel(entity.youColor);
     _ai = _buildAi(aiDifficulty);
+    _clock = ClockController(_defaultTimeControl, active: state.currentPlayer);
     _set(GameUi(
       state: state,
       opponent: isAi ? Opponent.ai : Opponent.human,
       aiPlays: isAi ? youColor.other : StoneColor.white,
       aiDifficulty: aiDifficulty,
+      timeControl: _defaultTimeControl,
+      blackClock: _clock.black,
+      whiteClock: _clock.white,
     ));
     _startClock();
     _maybeTriggerAi();
@@ -287,8 +321,8 @@ class GameViewModel extends ChangeNotifier {
       return;
     }
     final next = res.newStateAs<GameState>();
-    final isAiMove = cur.opponent == Opponent.ai &&
-        cur.state.currentPlayer == cur.aiPlays;
+    final mover = cur.state.currentPlayer;
+    final isAiMove = cur.opponent == Opponent.ai && mover == cur.aiPlays;
     if (intent.type == MoveType.placeStone && !isAiMove) {
       final prevCaps = cur.state.capturesByBlack + cur.state.capturesByWhite;
       final newCaps = next.capturesByBlack + next.capturesByWhite;
@@ -298,7 +332,14 @@ class GameViewModel extends ChangeNotifier {
         HapticFeedback.lightImpact();
       }
     }
-    _set(cur.copyWith(state: next, rejection: null, pendingPoint: null));
+    _clock.onMovePlayed(mover);
+    _set(cur.copyWith(
+      state: next,
+      rejection: null,
+      pendingPoint: null,
+      blackClock: _clock.black,
+      whiteClock: _clock.white,
+    ));
     switch (next.status) {
       case GameStatus.scoring:
         _stopClock();
@@ -425,21 +466,15 @@ class GameViewModel extends ChangeNotifier {
     _lastTickMillis = now;
     final cur = _ui;
     if (cur.state.status != GameStatus.active) return;
-    final active = cur.state.currentPlayer;
-    final b = active == StoneColor.black
-        ? math.max(0, cur.blackMillis - delta)
-        : cur.blackMillis;
-    final w = active == StoneColor.white
-        ? math.max(0, cur.whiteMillis - delta)
-        : cur.whiteMillis;
-    StoneColor? timeoutLoser = cur.timeoutLoser;
-    if (b == 0 && timeoutLoser == null) timeoutLoser = StoneColor.black;
-    if (w == 0 && timeoutLoser == null) timeoutLoser = StoneColor.white;
+    if (cur.timeControl.kind == TimeControlKind.none) return;
+    _clock.switchActive(cur.state.currentPlayer);
+    final flagged = _clock.tick(delta);
+    StoneColor? timeoutLoser = cur.timeoutLoser ?? flagged;
     final newStatus =
         timeoutLoser != null ? GameStatus.completed : cur.state.status;
     _set(cur.copyWith(
-      blackMillis: b,
-      whiteMillis: w,
+      blackClock: _clock.black,
+      whiteClock: _clock.white,
       timeoutLoser: timeoutLoser,
       state: newStatus != cur.state.status
           ? cur.state.copyWith(status: newStatus)
@@ -460,12 +495,5 @@ class GameViewModel extends ChangeNotifier {
   void dispose() {
     _stopClock();
     super.dispose();
-  }
-
-  static String formatTime(int millis) {
-    final total = math.max(0, millis ~/ 1000);
-    final m = total ~/ 60;
-    final s = total % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 }

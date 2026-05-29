@@ -1,0 +1,110 @@
+[
+  {
+    "id": "capture_tactics",
+    "title": "Capture Tactics",
+    "subtitle": "Beginner · 4 lessons",
+    "description": "Learn to spot atari, run the ladder, and read the basic kill patterns that come up in every game.",
+    "lessons": [
+      {
+        "id": "atari_basics",
+        "title": "Atari basics",
+        "summary": "A stone with one liberty is in atari — one move from capture.",
+        "sections": [
+          {
+            "kind": "text",
+            "body": "A stone is in atari when it has exactly one liberty left. If your opponent fills that liberty, the stone is captured. Recognizing atari — both ways — is the first tactical skill of Go."
+          },
+          {
+            "kind": "diagram",
+            "boardSize": 7,
+            "black": ["cd", "dc", "ed"],
+            "white": ["dd"],
+            "markers": ["de"],
+            "caption": "The white stone has one liberty (marked). Black plays there to capture."
+          },
+          {
+            "kind": "text",
+            "body": "When you place a stone, scan around it for opponent stones in atari. If you can capture instead of defending, you almost always should — captured stones are gone forever and the resulting space becomes yours to use."
+          },
+          {
+            "kind": "exercise",
+            "puzzleId": "p001",
+            "prompt": "Capture the stone in atari."
+          }
+        ]
+      },
+      {
+        "id": "extend_or_capture",
+        "title": "Extend or capture?",
+        "summary": "When you're in atari, you can extend, run, or take the opponent first.",
+        "sections": [
+          {
+            "kind": "text",
+            "body": "When your own stone is in atari, you have three options:\n\n1. Extend — add a stone to give the group more liberties.\n2. Capture — take an opponent stone whose capture would free your liberties.\n3. Sacrifice — sometimes losing one stone is better than running into a losing fight.\n\nLook for option 2 first. It often solves both problems with one move."
+          },
+          {
+            "kind": "diagram",
+            "boardSize": 7,
+            "black": ["cd", "dc", "ed", "ce", "ee"],
+            "white": ["dd", "de"],
+            "markers": ["df"],
+            "caption": "Two white stones with a single shared liberty. One move captures both."
+          },
+          {
+            "kind": "exercise",
+            "puzzleId": "p002",
+            "prompt": "Capture both white stones."
+          }
+        ]
+      },
+      {
+        "id": "edges_and_corners",
+        "title": "Edges and corners",
+        "summary": "Stones near the edge have fewer liberties — capture is often closer than it looks.",
+        "sections": [
+          {
+            "kind": "text",
+            "body": "A stone in the middle of the board has 4 liberties. On the edge it has only 3. In the corner, only 2. That means stones near the edge are in atari one move earlier — both yours and your opponent's."
+          },
+          {
+            "kind": "diagram",
+            "boardSize": 7,
+            "black": ["ba", "da"],
+            "white": ["ca"],
+            "markers": ["cb"],
+            "caption": "The edge does half the work. Closing one liberty captures."
+          },
+          {
+            "kind": "exercise",
+            "puzzleId": "p004",
+            "prompt": "Trap the edge stone."
+          }
+        ]
+      },
+      {
+        "id": "the_corner",
+        "title": "The corner",
+        "summary": "Corners give the fewest liberties of all — and the cleanest kills.",
+        "sections": [
+          {
+            "kind": "text",
+            "body": "Corner stones are the most vulnerable on the board. Memorize this: a single corner stone needs three friends to live; two stones lined up need a careful eye-shape. Whenever a corner is involved, count the liberties carefully."
+          },
+          {
+            "kind": "diagram",
+            "boardSize": 7,
+            "black": ["ba", "bb", "ac"],
+            "white": ["ab"],
+            "markers": ["aa"],
+            "caption": "Two liberties around a corner stone. Close one and it's over."
+          },
+          {
+            "kind": "exercise",
+            "puzzleId": "p005",
+            "prompt": "Finish the corner."
+          }
+        ]
+      }
+    ]
+  }
+]

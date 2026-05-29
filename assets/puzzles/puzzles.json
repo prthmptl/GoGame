@@ -1,0 +1,182 @@
+[
+  {
+    "id": "p001",
+    "title": "Atari",
+    "description": "The white stone has one liberty left. Capture it.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 1,
+    "initial": {
+      "black": ["dc", "cd", "ed"],
+      "white": ["dd"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "de"},
+        "outcome": "correct",
+        "comment": "Filling the last liberty captures the stone."
+      },
+      {
+        "move": {"player": "black", "point": "dc"},
+        "outcome": "wrong",
+        "comment": "That point is already a black stone — look for the empty liberty."
+      }
+    ]
+  },
+  {
+    "id": "p002",
+    "title": "Two in a row",
+    "description": "Two white stones share their last liberty. Capture them.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 1,
+    "initial": {
+      "black": ["dc", "cd", "ed", "ce", "ee"],
+      "white": ["dd", "de"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "df"},
+        "outcome": "correct",
+        "comment": "Both stones share the same final liberty — one move takes both."
+      }
+    ]
+  },
+  {
+    "id": "p003",
+    "title": "Bent three",
+    "description": "Three white stones form an L. One move captures all of them.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 2,
+    "initial": {
+      "black": ["dc", "ec", "cd", "fd", "ce", "ee"],
+      "white": ["dd", "ed", "de"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "df"},
+        "outcome": "correct",
+        "comment": "The whole shape shares a single liberty at the bottom."
+      },
+      {
+        "move": {"player": "black", "point": "fe"},
+        "outcome": "wrong",
+        "comment": "That doesn't touch the white group's liberty."
+      }
+    ]
+  },
+  {
+    "id": "p004",
+    "title": "Pinned to the edge",
+    "description": "A white stone is sitting on the top edge with one breath of air. End it.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 1,
+    "initial": {
+      "black": ["ba", "da"],
+      "white": ["ca"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "cb"},
+        "outcome": "correct",
+        "comment": "The edge removes one liberty for free. Close the last."
+      },
+      {
+        "move": {"player": "black", "point": "bb"},
+        "outcome": "wrong",
+        "comment": "Diagonal stones don't take liberties. The straight neighbor does."
+      }
+    ]
+  },
+  {
+    "id": "p005",
+    "title": "Cornered",
+    "description": "Trap the white stone in the corner.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 2,
+    "initial": {
+      "black": ["ba", "bb", "ac"],
+      "white": ["ab"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "aa"},
+        "outcome": "correct",
+        "comment": "Corner stones have only two liberties — close the last."
+      }
+    ]
+  },
+  {
+    "id": "p006",
+    "title": "From above",
+    "description": "Two white stones, this time captured from the top.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 1,
+    "initial": {
+      "black": ["ce", "ee", "cf", "ef", "dg"],
+      "white": ["de", "df"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "dd"},
+        "outcome": "correct",
+        "comment": "Always look for the shared liberty — direction doesn't matter."
+      }
+    ]
+  },
+  {
+    "id": "p007",
+    "title": "Wall capture",
+    "description": "A row of four white stones — one liberty remains.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 2,
+    "initial": {
+      "black": ["cd", "dd", "ed", "fd", "cf", "df", "ef", "ff", "ge"],
+      "white": ["ce", "de", "ee", "fe"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "be"},
+        "outcome": "correct",
+        "comment": "Long groups can still share one liberty. Find the open end."
+      },
+      {
+        "move": {"player": "black", "point": "ge"},
+        "outcome": "wrong",
+        "comment": "That point is already filled — scan the white group for an empty neighbor."
+      }
+    ]
+  },
+  {
+    "id": "p008",
+    "title": "Corner trap",
+    "description": "Two white stones cling to the corner. End them.",
+    "boardSize": 9,
+    "theme": "capture",
+    "difficulty": 2,
+    "initial": {
+      "black": ["ca", "cb", "bb", "ac"],
+      "white": ["aa", "ab"]
+    },
+    "toMove": "black",
+    "solution": [
+      {
+        "move": {"player": "black", "point": "ba"},
+        "outcome": "correct",
+        "comment": "The corner gives stones fewer liberties to begin with."
+      }
+    ]
+  }
+]

@@ -61,8 +61,15 @@ class _GameScreenState extends State<GameScreen> {
       ui.opponent == Opponent.ai ? ui.aiPlays.other : StoneColor.black;
 
   bool _lowTime(GameUi ui, StoneColor color) {
-    final ms = color == StoneColor.black ? ui.blackMillis : ui.whiteMillis;
+    final snap = color == StoneColor.black ? ui.blackClock : ui.whiteClock;
+    if (snap.flagged) return false;
+    final ms = snap.inOvertime ? snap.periodMillis : snap.mainMillis;
     return ui.state.status == GameStatus.active && ms > 0 && ms <= 30000;
+  }
+
+  String _formatClock(GameUi ui, StoneColor color) {
+    final snap = color == StoneColor.black ? ui.blackClock : ui.whiteClock;
+    return snap.formatted(ui.timeControl);
   }
 
   Future<void> _confirmResign() async {
@@ -103,12 +110,18 @@ class _GameScreenState extends State<GameScreen> {
               child: ZenChip(
                 container: scheme.primary,
                 text: switch (state.status) {
-                  GameStatus.active => ui.opponent == Opponent.ai
-                      ? 'PRACTICE MATCH'
-                      : 'LOCAL MATCH',
+                  GameStatus.active =>
+                    state.config.variant == GameVariant.atariGo
+                        ? 'ATARI GO'
+                        : (ui.opponent == Opponent.ai
+                            ? 'PRACTICE MATCH'
+                            : 'LOCAL MATCH'),
                   GameStatus.scoring => 'SCORING',
-                  GameStatus.completed =>
-                    ui.timeoutLoser != null ? 'TIMEOUT' : 'COMPLETED',
+                  GameStatus.completed => ui.timeoutLoser != null
+                      ? 'TIMEOUT'
+                      : (state.config.variant == GameVariant.atariGo
+                          ? 'CAPTURE!'
+                          : 'COMPLETED'),
                   GameStatus.resigned => 'RESIGNED',
                 },
               ),
@@ -117,14 +130,10 @@ class _GameScreenState extends State<GameScreen> {
             _PlayerCard(
               color: ui.opponent == Opponent.ai ? ui.aiPlays : StoneColor.white,
               name: ui.opponent == Opponent.ai
-                  ? '${ui.aiDifficulty.label} opponent'
+                  ? (ui.botName ?? '${ui.aiDifficulty.label} opponent')
                   : 'Opponent',
-              time: GameViewModel.formatTime(
-                ((ui.opponent == Opponent.ai ? ui.aiPlays : StoneColor.white) ==
-                        StoneColor.black)
-                    ? ui.blackMillis
-                    : ui.whiteMillis,
-              ),
+              time: _formatClock(ui,
+                  ui.opponent == Opponent.ai ? ui.aiPlays : StoneColor.white),
               active: state.status == GameStatus.active &&
                   state.currentPlayer ==
                       (ui.opponent == Opponent.ai
@@ -163,11 +172,7 @@ class _GameScreenState extends State<GameScreen> {
             _PlayerCard(
               color: _humanColor(ui),
               name: 'You',
-              time: GameViewModel.formatTime(
-                _humanColor(ui) == StoneColor.black
-                    ? ui.blackMillis
-                    : ui.whiteMillis,
-              ),
+              time: _formatClock(ui, _humanColor(ui)),
               active: state.status == GameStatus.active &&
                   state.currentPlayer == _humanColor(ui),
               lowTime: _lowTime(ui, _humanColor(ui)),

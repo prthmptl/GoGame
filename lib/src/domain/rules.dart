@@ -157,6 +157,11 @@ class Rules {
         (player == StoneColor.white ? captured.length : 0) +
         (player == StoneColor.black ? selfCaptured.length : 0);
 
+    final atariGoEnded = state.config.variant == GameVariant.atariGo &&
+        captured.isNotEmpty;
+    final nextStatus =
+        atariGoEnded ? GameStatus.completed : state.status;
+
     final next = state.copyWith(
       board: afterMove,
       currentPlayer: opponent,
@@ -168,6 +173,7 @@ class Rules {
       consecutivePasses: 0,
       lastMove: move,
       history: [...state.history, move],
+      status: nextStatus,
     );
     return MoveResult.accepted(next, move);
   }

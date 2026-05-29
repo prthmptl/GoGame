@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 
+import '../../data/profile_store.dart';
 import '../../data/settings_store.dart';
 import '../components/zen_components.dart';
 
 class SettingsScreen extends StatefulWidget {
   final SettingsStore store;
-  const SettingsScreen({super.key, required this.store});
+  final ProfileStore profile;
+  final VoidCallback onOpenProfile;
+  const SettingsScreen({
+    super.key,
+    required this.store,
+    required this.profile,
+    required this.onOpenProfile,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -16,11 +24,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     widget.store.addListener(_onChange);
+    widget.profile.addListener(_onChange);
   }
 
   @override
   void dispose() {
     widget.store.removeListener(_onChange);
+    widget.profile.removeListener(_onChange);
     super.dispose();
   }
 
@@ -40,6 +50,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Text('Settings',
               style:
                   text.headlineMedium?.copyWith(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 12),
+          ZenCard(
+            container: scheme.primaryContainer,
+            onTap: widget.onOpenProfile,
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: scheme.onPrimaryContainer.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    widget.profile.value.name.isEmpty
+                        ? '?'
+                        : widget.profile.value.name[0].toUpperCase(),
+                    style: text.headlineSmall?.copyWith(
+                      color: scheme.onPrimaryContainer,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.profile.value.name,
+                          style: text.headlineSmall?.copyWith(
+                              color: scheme.onPrimaryContainer)),
+                      Text('Rating ${widget.profile.value.rating}',
+                          style: text.bodyMedium?.copyWith(
+                              color: scheme.onPrimaryContainer
+                                  .withValues(alpha: 0.85))),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: scheme.onPrimaryContainer),
+              ],
+            ),
+          ),
           const SizedBox(height: 12),
           ZenCard(
             child: Column(

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/bots/bot_catalog.dart';
+import '../../domain/bots/bot_profile.dart';
+import '../../domain/clock/time_control.dart';
 import '../../domain/models.dart';
 import '../components/zen_components.dart';
+import 'bot_picker_screen.dart';
 import 'game_view_model.dart';
 
 class GameSetup {
@@ -9,11 +13,41 @@ class GameSetup {
   final Opponent opponent;
   final StoneColor aiColor;
   final AiDifficulty aiDifficulty;
-  const GameSetup(
-      {required this.config,
-      required this.opponent,
-      required this.aiColor,
-      required this.aiDifficulty});
+  final TimeControl timeControl;
+  final BotProfile? bot;
+  const GameSetup({
+    required this.config,
+    required this.opponent,
+    required this.aiColor,
+    required this.aiDifficulty,
+    required this.timeControl,
+    this.bot,
+  });
+}
+
+enum _TimePreset { noClock, blitz, rapid, fischer5p3, byoYomi, canadian }
+
+extension _TimePresetX on _TimePreset {
+  String get label => switch (this) {
+        _TimePreset.noClock => 'None',
+        _TimePreset.blitz => '5 min',
+        _TimePreset.rapid => '15 min',
+        _TimePreset.fischer5p3 => '5 + 3',
+        _TimePreset.byoYomi => 'Byo-yomi',
+        _TimePreset.canadian => 'Canadian',
+      };
+
+  TimeControl get control => switch (this) {
+        _TimePreset.noClock => const TimeControl.none(),
+        _TimePreset.blitz => const TimeControl.absolute(mainSeconds: 5 * 60),
+        _TimePreset.rapid => const TimeControl.absolute(mainSeconds: 15 * 60),
+        _TimePreset.fischer5p3 =>
+          const TimeControl.fischer(mainSeconds: 5 * 60, incrementSeconds: 3),
+        _TimePreset.byoYomi => const TimeControl.byoYomi(
+            mainSeconds: 10 * 60, periods: 3, periodSeconds: 30),
+        _TimePreset.canadian => const TimeControl.canadian(
+            mainSeconds: 10 * 60, stonesPerPeriod: 20, periodSeconds: 5 * 60),
+      };
 }
 
 class SetupScreen extends StatefulWidget {
@@ -33,6 +67,9 @@ class _SetupScreenState extends State<SetupScreen> {
   int handicap = 0;
   StoneColor aiColor = StoneColor.white;
   AiDifficulty aiDifficulty = AiDifficulty.beginner;
+  _TimePreset timePreset = _TimePreset.rapid;
+  BotProfile? selectedBot = BotCatalog.byId('kiri');
+  GameVariant variant = GameVariant.standard;
 
   void _onRulesetChanged(Ruleset r) {
     final defaults = RulesetDefaults.of(r);
@@ -68,6 +105,14 @@ class _SetupScreenState extends State<SetupScreen> {
                   onSelect: _onRulesetChanged,
                 ),
                 const SizedBox(height: 20),
+                _ChipSection<GameVariant>(
+                  title: 'GAME MODE',
+                  options: GameVariant.values,
+                  selected: variant,
+                  label: (v) => v.label,
+                  onSelect: (v) => setState(() => variant = v),
+                ),
+                const SizedBox(height: 20),
                 _ChipSection<int>(
                   title: 'BOARD SIZE',
                   options: const [9, 13, 19],
@@ -89,14 +134,41 @@ class _SetupScreenState extends State<SetupScreen> {
                 const _SectionLabel('HANDICAP'),
                 const SizedBox(height: 8),
                 ..._handicapRows(),
+                const SizedBox(height: 20),
+                const _SectionLabel('TIME CONTROL'),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 44,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _TimePreset.values.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, i) {
+                      final preset = _TimePreset.values[i];
+                      return SizedBox(
+                        width: 110,
+                        child: ZenOptionButton(
+                          label: preset.label,
+                          selected: preset == timePreset,
+                          onTap: () => setState(() => timePreset = preset),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  timePreset.control.describe(),
+                  style: text.labelSmall
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
                 if (widget.isAi) ...[
                   const SizedBox(height: 20),
-                  _ChipSection<AiDifficulty>(
-                    title: 'OPPONENT STYLE',
-                    options: AiDifficulty.values,
-                    selected: aiDifficulty,
-                    label: (v) => v.label,
-                    onSelect: (v) => setState(() => aiDifficulty = v),
+                  const _SectionLabel('OPPONENT'),
+                  const SizedBox(height: 8),
+                  _BotRow(
+                    bot: selectedBot,
+                    onTap: _pickBot,
                   ),
                   const SizedBox(height: 20),
                   const _SectionLabel('OPPONENT PLAYS'),
@@ -134,10 +206,15 @@ class _SetupScreenState extends State<SetupScreen> {
                   handicap: handicap,
                   allowSuicide: defaults.allowSuicide,
                   superkoMode: defaults.superkoMode,
+                  variant: variant,
                 ),
                 opponent: widget.isAi ? Opponent.ai : Opponent.human,
                 aiColor: aiColor,
-                aiDifficulty: aiDifficulty,
+                aiDifficulty: widget.isAi
+                    ? (selectedBot?.engine ?? aiDifficulty)
+                    : aiDifficulty,
+                timeControl: timePreset.control,
+                bot: widget.isAi ? selectedBot : null,
               )),
               child: Text('BEGIN GAME',
                   style: text.labelLarge?.copyWith(color: scheme.onPrimary)),
@@ -174,6 +251,81 @@ class _SetupScreenState extends State<SetupScreen> {
 
   Widget _optionButton(String label, bool selected, VoidCallback onTap) =>
       ZenOptionButton(label: label, selected: selected, onTap: onTap);
+
+  Future<void> _pickBot() async {
+    final picked = await Navigator.of(context).push<BotProfile>(
+      MaterialPageRoute(
+        builder: (_) => BotPickerScreen(
+          selected: selectedBot,
+          onPick: (bot) => Navigator.of(context).pop(bot),
+        ),
+      ),
+    );
+    if (picked != null) {
+      setState(() {
+        selectedBot = picked;
+        aiDifficulty = picked.engine;
+      });
+    }
+  }
+}
+
+class _BotRow extends StatelessWidget {
+  final BotProfile? bot;
+  final VoidCallback onTap;
+  const _BotRow({required this.bot, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final b = bot;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                shape: BoxShape.circle,
+              ),
+              alignment: Alignment.center,
+              child: Text(b?.initials ?? '??',
+                  style: text.labelLarge
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(b?.name ?? 'Pick an opponent',
+                      style: text.bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w600)),
+                  if (b != null)
+                    Text(
+                      '${b.countryEmoji} · ${b.rankLabel} · ${b.style.label}',
+                      style: text.labelSmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _SectionLabel extends StatelessWidget {

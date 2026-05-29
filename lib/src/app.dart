@@ -6,15 +6,30 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'data/drill_repo.dart';
+import 'data/lesson_repo.dart';
+import 'data/profile_store.dart';
+import 'data/puzzle_repo.dart';
 import 'data/saved_game.dart';
 import 'data/saved_game_repo.dart';
 import 'data/settings_store.dart';
 import 'domain/models.dart';
+import 'ui/screens/course_screen.dart';
+import 'ui/screens/courses_screen.dart';
+import 'ui/screens/drill_screen.dart';
+import 'ui/screens/drills_screen.dart';
 import 'ui/screens/game_screen.dart';
 import 'ui/screens/game_view_model.dart';
 import 'ui/screens/home_screen.dart';
+import 'ui/screens/lesson_player_screen.dart';
+import 'ui/screens/onboarding_screen.dart';
+import 'ui/screens/profile_screen.dart';
+import 'ui/screens/puzzle_rush_screen.dart';
+import 'ui/screens/puzzle_screen.dart';
+import 'ui/screens/puzzles_screen.dart';
 import 'ui/screens/review_screen.dart';
 import 'ui/screens/rules_screen.dart';
+import 'ui/screens/sandbox_screen.dart';
 import 'ui/screens/settings_screen.dart';
 import 'ui/screens/setup_screen.dart';
 import 'ui/screens/tutorial_screen.dart';
@@ -23,7 +38,19 @@ import 'ui/theme.dart';
 class GoApp extends StatefulWidget {
   final SavedGameRepo repo;
   final SettingsStore settings;
-  const GoApp({super.key, required this.repo, required this.settings});
+  final PuzzleRepo puzzles;
+  final DrillRepo drills;
+  final LessonRepo lessons;
+  final ProfileStore profile;
+  const GoApp({
+    super.key,
+    required this.repo,
+    required this.settings,
+    required this.puzzles,
+    required this.drills,
+    required this.lessons,
+    required this.profile,
+  });
 
   @override
   State<GoApp> createState() => _GoAppState();
@@ -35,7 +62,17 @@ class _GoAppState extends State<GoApp> {
 
   GoRouter _buildRouter() {
     return GoRouter(
-      initialLocation: '/play',
+      initialLocation:
+          widget.profile.value.onboarded ? '/play' : '/onboarding',
+      redirect: (context, state) {
+        final loc = state.matchedLocation;
+        if (!widget.profile.value.onboarded &&
+            loc != '/onboarding' &&
+            !loc.startsWith('/game')) {
+          return '/onboarding';
+        }
+        return null;
+      },
       routes: [
         ShellRoute(
           builder: (context, state, child) =>
@@ -45,6 +82,18 @@ class _GoAppState extends State<GoApp> {
               path: '/play',
               builder: (context, state) =>
                   _PlayTab(repo: widget.repo, vm: _gameVm),
+            ),
+            GoRoute(
+              path: '/puzzles',
+              builder: (context, state) => PuzzlesScreen(
+                repo: widget.puzzles,
+                onOpenPuzzle: (puzzle) {
+                  final daily = widget.puzzles.dailyPuzzle();
+                  final isDaily = daily?.id == puzzle.id;
+                  context.push('/puzzle/${puzzle.id}${isDaily ? '?daily=1' : ''}');
+                },
+                onStartRush: () => context.push('/puzzle-rush'),
+              ),
             ),
             GoRoute(
               path: '/learn',
@@ -68,8 +117,11 @@ class _GoAppState extends State<GoApp> {
             ),
             GoRoute(
               path: '/settings',
-              builder: (context, state) =>
-                  SettingsScreen(store: widget.settings),
+              builder: (context, state) => SettingsScreen(
+                store: widget.settings,
+                profile: widget.profile,
+                onOpenProfile: () => context.push('/profile'),
+              ),
             ),
           ],
         ),
@@ -77,6 +129,26 @@ class _GoAppState extends State<GoApp> {
           path: '/rules',
           builder: (context, state) =>
               _StandalonePage(child: RulesScreen(onBack: () => context.pop())),
+        ),
+        GoRoute(
+          path: '/onboarding',
+          builder: (context, state) => OnboardingScreen(
+            profile: widget.profile,
+            puzzles: widget.puzzles,
+            settings: widget.settings,
+            onFinish: () => context.go('/play'),
+            onPlayBot: (bot) {
+              _gameVm.startGame(
+                config: const GameConfig(boardSize: 9),
+                opponent: Opponent.ai,
+                aiPlays: StoneColor.white,
+                aiDifficulty: bot.engine,
+                botName: bot.name,
+                showHints: widget.settings.value.beginnerHints,
+              );
+              context.go('/game');
+            },
+          ),
         ),
         GoRoute(
           path: '/setup-local',
@@ -89,6 +161,8 @@ class _GoAppState extends State<GoApp> {
                   opponent: setup.opponent,
                   aiPlays: setup.aiColor,
                   aiDifficulty: setup.aiDifficulty,
+                  timeControl: setup.timeControl,
+                  botName: setup.bot?.name,
                   showHints: widget.settings.value.beginnerHints,
                 );
                 context.pushReplacement('/game');
@@ -107,6 +181,8 @@ class _GoAppState extends State<GoApp> {
                   opponent: setup.opponent,
                   aiPlays: setup.aiColor,
                   aiDifficulty: setup.aiDifficulty,
+                  timeControl: setup.timeControl,
+                  botName: setup.bot?.name,
                   showHints: widget.settings.value.beginnerHints,
                 );
                 context.pushReplacement('/game');
@@ -123,6 +199,112 @@ class _GoAppState extends State<GoApp> {
               onExit: () => context.go('/play'),
             ),
           ),
+        ),
+        GoRoute(
+          path: '/puzzle-rush',
+          builder: (context, state) => PuzzleRushScreen(
+            repo: widget.puzzles,
+            settings: widget.settings,
+          ),
+        ),
+        GoRoute(
+          path: '/drills',
+          builder: (context, state) => DrillsScreen(
+            repo: widget.drills,
+            onOpen: (drill) => context.push('/drill/${drill.id}'),
+          ),
+        ),
+        GoRoute(
+          path: '/sandbox',
+          builder: (context, state) =>
+              SandboxScreen(settings: widget.settings),
+        ),
+        GoRoute(
+          path: '/profile',
+          builder: (context, state) => ProfileScreen(
+            profile: widget.profile,
+            games: widget.repo,
+            puzzles: widget.puzzles,
+            drills: widget.drills,
+            lessons: widget.lessons,
+          ),
+        ),
+        GoRoute(
+          path: '/courses',
+          builder: (context, state) => CoursesScreen(
+            repo: widget.lessons,
+            onOpen: (course) => context.push('/course/${course.id}'),
+          ),
+        ),
+        GoRoute(
+          path: '/course/:id',
+          builder: (context, state) {
+            final id = state.pathParameters['id']!;
+            final course = widget.lessons.byId(id);
+            if (course == null) {
+              return _StandalonePage(
+                child: Center(
+                    child: Text('Course not found',
+                        style: Theme.of(context).textTheme.bodyLarge)),
+              );
+            }
+            return CourseScreen(
+              course: course,
+              repo: widget.lessons,
+              onOpenLesson: (course, lesson, index) {
+                Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => LessonPlayerScreen(
+                    course: course,
+                    lesson: lesson,
+                    lessons: widget.lessons,
+                    puzzles: widget.puzzles,
+                    settings: widget.settings,
+                  ),
+                ));
+              },
+            );
+          },
+        ),
+        GoRoute(
+          path: '/drill/:id',
+          builder: (context, state) {
+            final id = state.pathParameters['id']!;
+            final drill = widget.drills.byId(id);
+            if (drill == null) {
+              return _StandalonePage(
+                child: Center(
+                  child: Text('Drill not found',
+                      style: Theme.of(context).textTheme.bodyLarge),
+                ),
+              );
+            }
+            return DrillScreen(
+              drill: drill,
+              repo: widget.drills,
+              settings: widget.settings,
+            );
+          },
+        ),
+        GoRoute(
+          path: '/puzzle/:id',
+          builder: (context, state) {
+            final id = state.pathParameters['id']!;
+            final puzzle = widget.puzzles.puzzleById(id);
+            if (puzzle == null) {
+              return _StandalonePage(
+                child: Center(
+                  child: Text('Puzzle not found',
+                      style: Theme.of(context).textTheme.bodyLarge),
+                ),
+              );
+            }
+            return PuzzleScreen(
+              puzzle: puzzle,
+              repo: widget.puzzles,
+              settings: widget.settings,
+              isDaily: state.uri.queryParameters['daily'] == '1',
+            );
+          },
         ),
       ],
     );
@@ -163,7 +345,13 @@ class _Chrome extends StatefulWidget {
   final String currentLocation;
   const _Chrome({required this.child, required this.currentLocation});
 
-  static const _routes = ['/play', '/learn', '/review', '/settings'];
+  static const _routes = [
+    '/play',
+    '/puzzles',
+    '/learn',
+    '/review',
+    '/settings'
+  ];
 
   @override
   State<_Chrome> createState() => _ChromeState();
@@ -427,17 +615,21 @@ class _ChromeState extends State<_Chrome> {
                                     label: 'Play',
                                     index: 0),
                                 _navTile(context,
+                                    icon: Icons.extension_outlined,
+                                    label: 'Puzzles',
+                                    index: 1),
+                                _navTile(context,
                                     icon: Icons.menu_book_outlined,
                                     label: 'Learn',
-                                    index: 1),
+                                    index: 2),
                                 _navTile(context,
                                     icon: Icons.rate_review_outlined,
                                     label: 'Review',
-                                    index: 2),
+                                    index: 3),
                                 _navTile(context,
                                     icon: Icons.settings_outlined,
                                     label: 'Settings',
-                                    index: 3),
+                                    index: 4),
                               ],
                             ),
                           ),

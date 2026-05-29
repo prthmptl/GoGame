@@ -178,7 +178,12 @@ class TutorialScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _List(onPick: (i) => context.push('/learn/lesson/$i'));
+    return _List(
+      onPick: (i) => context.push('/learn/lesson/$i'),
+      onOpenDrills: () => context.push('/drills'),
+      onOpenSandbox: () => context.push('/sandbox'),
+      onOpenCourses: () => context.push('/courses'),
+    );
   }
 }
 
@@ -197,7 +202,15 @@ class LessonDetailScreen extends StatelessWidget {
 
 class _List extends StatelessWidget {
   final ValueChanged<int> onPick;
-  const _List({required this.onPick});
+  final VoidCallback onOpenDrills;
+  final VoidCallback onOpenSandbox;
+  final VoidCallback onOpenCourses;
+  const _List({
+    required this.onPick,
+    required this.onOpenDrills,
+    required this.onOpenSandbox,
+    required this.onOpenCourses,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +231,81 @@ class _List extends StatelessWidget {
           Text(
             'Five short lessons covering everything you need to play your first full game.',
             style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 16),
+          ZenCard(
+            container: scheme.surfaceContainerHigh,
+            onTap: onOpenCourses,
+            child: Row(
+              children: [
+                Icon(Icons.library_books, color: scheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Courses', style: text.headlineSmall),
+                      Text(
+                        'Multi-lesson units with diagrams and built-in exercises.',
+                        style: text.bodyMedium
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          ZenCard(
+            container: scheme.surfaceContainerHigh,
+            onTap: onOpenDrills,
+            child: Row(
+              children: [
+                Icon(Icons.school, color: scheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Drills', style: text.headlineSmall),
+                      Text(
+                        'Short positions vs. the AI. Win 3 in a row to master each.',
+                        style: text.bodyMedium
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          ZenCard(
+            container: scheme.surfaceContainerHigh,
+            onTap: onOpenSandbox,
+            child: Row(
+              children: [
+                Icon(Icons.auto_awesome, color: scheme.primary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Analysis sandbox', style: text.headlineSmall),
+                      Text(
+                        'Free-form board. Try lines and ask the engine for a hint.',
+                        style: text.bodyMedium
+                            ?.copyWith(color: scheme.onSurfaceVariant),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              ],
+            ),
           ),
           const SizedBox(height: 16),
           ..._lessons.asMap().entries.map((entry) {
