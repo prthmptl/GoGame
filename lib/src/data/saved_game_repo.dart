@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../domain/clock/time_control.dart';
 import '../domain/game_state.dart';
 import '../domain/models.dart';
 import '../domain/scoring.dart';
@@ -25,7 +26,7 @@ class SavedGameRepo {
     final path = p.join(base.path, 'go_game.db');
     final db = await openDatabase(
       path,
-      version: 5,
+      version: 6,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE $_table (
@@ -43,7 +44,17 @@ class SavedGameRepo {
             youColor TEXT NOT NULL DEFAULT 'BLACK',
             sgfPath TEXT NOT NULL DEFAULT '',
             blackTotal REAL,
-            whiteTotal REAL
+            whiteTotal REAL,
+            gameVariant TEXT NOT NULL DEFAULT 'standard',
+            botName TEXT NOT NULL DEFAULT '',
+            botStyle TEXT NOT NULL DEFAULT '',
+            aiDifficulty TEXT NOT NULL DEFAULT 'beginner',
+            timeControlKind TEXT NOT NULL DEFAULT 'absolute',
+            timeMainSeconds INTEGER NOT NULL DEFAULT 600,
+            timeIncrementSeconds INTEGER NOT NULL DEFAULT 0,
+            timePeriodSeconds INTEGER NOT NULL DEFAULT 0,
+            timePeriods INTEGER NOT NULL DEFAULT 0,
+            timeStonesPerPeriod INTEGER NOT NULL DEFAULT 0
           )
         ''');
       },
@@ -57,6 +68,16 @@ class SavedGameRepo {
           "ALTER TABLE saved_games ADD COLUMN ruleset TEXT NOT NULL DEFAULT 'CHINESE'",
           "ALTER TABLE saved_games ADD COLUMN blackTotal REAL",
           "ALTER TABLE saved_games ADD COLUMN whiteTotal REAL",
+          "ALTER TABLE saved_games ADD COLUMN gameVariant TEXT NOT NULL DEFAULT 'standard'",
+          "ALTER TABLE saved_games ADD COLUMN botName TEXT NOT NULL DEFAULT ''",
+          "ALTER TABLE saved_games ADD COLUMN botStyle TEXT NOT NULL DEFAULT ''",
+          "ALTER TABLE saved_games ADD COLUMN aiDifficulty TEXT NOT NULL DEFAULT 'beginner'",
+          "ALTER TABLE saved_games ADD COLUMN timeControlKind TEXT NOT NULL DEFAULT 'absolute'",
+          "ALTER TABLE saved_games ADD COLUMN timeMainSeconds INTEGER NOT NULL DEFAULT 600",
+          "ALTER TABLE saved_games ADD COLUMN timeIncrementSeconds INTEGER NOT NULL DEFAULT 0",
+          "ALTER TABLE saved_games ADD COLUMN timePeriodSeconds INTEGER NOT NULL DEFAULT 0",
+          "ALTER TABLE saved_games ADD COLUMN timePeriods INTEGER NOT NULL DEFAULT 0",
+          "ALTER TABLE saved_games ADD COLUMN timeStonesPerPeriod INTEGER NOT NULL DEFAULT 0",
         ]) {
           try {
             await db.execute(stmt);
@@ -75,6 +96,10 @@ class SavedGameRepo {
     required GameState state,
     required String opponentLabel,
     required StoneColor youColor,
+    TimeControl? timeControl,
+    String? botName,
+    String? botStyle,
+    AiDifficulty aiDifficulty = AiDifficulty.beginner,
   }) async {
     if (state.status != GameStatus.active &&
         state.status != GameStatus.scoring) {
@@ -90,6 +115,10 @@ class SavedGameRepo {
       opponentLabel: opponentLabel,
       resultLabel: '',
       youColor: youColor.name.toUpperCase(),
+      timeControl: timeControl,
+      botName: botName,
+      botStyle: botStyle,
+      aiDifficulty: aiDifficulty,
     );
     await _db.insert(_table, entity.toRow(),
         conflictAlgorithm: ConflictAlgorithm.replace);
@@ -112,6 +141,10 @@ class SavedGameRepo {
     required StoneColor youColor,
     required String resultLabel,
     ScoreResult? score,
+    TimeControl? timeControl,
+    String? botName,
+    String? botStyle,
+    AiDifficulty aiDifficulty = AiDifficulty.beginner,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     final id = 'game_$now';
@@ -133,6 +166,10 @@ class SavedGameRepo {
       youColor: youColor.name.toUpperCase(),
       sgfPath: f.path,
       score: score,
+      timeControl: timeControl,
+      botName: botName,
+      botStyle: botStyle,
+      aiDifficulty: aiDifficulty,
     );
     await _db.insert(_table, entity.toRow(),
         conflictAlgorithm: ConflictAlgorithm.replace);

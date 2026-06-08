@@ -393,6 +393,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         ? <Point>{currentAnalysis!.recommended!}
         : const <Point>{};
     final siblings = _siblingChoicesAtCurrent();
+    final sliderMax = math.max(1, math.max(mainLineLength, pathDepth));
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -459,8 +460,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
             value: pathDepth.toDouble(),
             onChanged: (v) => _jumpTo(v.toInt()),
             min: 0,
-            max: math.max(1, mainLineLength).toDouble(),
-            divisions: mainLineLength > 0 ? mainLineLength : null,
+            max: sliderMax.toDouble(),
+            divisions: sliderMax > 0 ? sliderMax : null,
           ),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,

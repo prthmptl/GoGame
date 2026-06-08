@@ -13,7 +13,6 @@ const _kStreakBest = 'puzzle.streak.best';
 const _kStreakLastDate = 'puzzle.streak.lastDate';
 const _kDailyDate = 'puzzle.daily.date';
 const _kDailyId = 'puzzle.daily.id';
-const _kRushBest = 'puzzle.rush.best';
 
 enum AttemptStatus { unsolved, solved, failed }
 
@@ -179,16 +178,6 @@ class PuzzleRepo extends ChangeNotifier {
     }
     notifyListeners();
     return streak();
-  }
-
-  int rushBest() => _prefs.getInt(_kRushBest) ?? 0;
-
-  Future<void> recordRushScore(int score) async {
-    final current = rushBest();
-    if (score > current) {
-      await _prefs.setInt(_kRushBest, score);
-      notifyListeners();
-    }
   }
 
   static String _dateKey(DateTime d) =>

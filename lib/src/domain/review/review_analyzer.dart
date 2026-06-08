@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import '../ai/ai_heuristics.dart';
 import '../ai/beginner_ai.dart';
@@ -104,8 +105,7 @@ class ReviewAnalyzer {
         recommended = _safeRecommend(ai, state);
         if (recommended != null) {
           final actualScore = AiHeuristics.evaluate(after, move.player);
-          final altApply =
-              Rules.apply(state, MoveIntent.place(recommended));
+          final altApply = Rules.apply(state, MoveIntent.place(recommended));
           if (altApply.isAccepted) {
             final altState = altApply.newStateAs<GameState>();
             final altScore = AiHeuristics.evaluate(altState, move.player);
@@ -149,8 +149,8 @@ class ReviewAnalyzer {
   }
 
   GoAi _buildAi() => switch (depth) {
-        ReviewDepth.quick => BeginnerAi(),
-        ReviewDepth.standard => IntermediateAi(),
+        ReviewDepth.quick => BeginnerAi(random: math.Random(0xA11CE)),
+        ReviewDepth.standard => IntermediateAi(random: math.Random(0xA11CE)),
       };
 
   Point? _safeRecommend(GoAi ai, GameState state) {

@@ -102,7 +102,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       drillTotal: widget.drills.drills.length,
       lessonsCompleted: lessonsCompleted,
       lessonsTotal: totalLessons,
-      rushBest: widget.puzzles.rushBest(),
     );
   }
 
@@ -216,7 +215,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     title: 'Puzzles',
                     completed: s.puzzlesSolved,
                     total: s.puzzleTotal,
-                    extraLabel: 'Puzzle Rush best: ${s.rushBest}',
+                    extraLabel: 'Daily puzzle streak is tracked in puzzles.',
                   ),
                   const SizedBox(height: 12),
                   _ProgressBlock(
@@ -254,7 +253,6 @@ class _Stats {
   final int drillTotal;
   final int lessonsCompleted;
   final int lessonsTotal;
-  final int rushBest;
   const _Stats({
     required this.played,
     required this.wins,
@@ -267,7 +265,6 @@ class _Stats {
     required this.drillTotal,
     required this.lessonsCompleted,
     required this.lessonsTotal,
-    required this.rushBest,
   });
 }
 

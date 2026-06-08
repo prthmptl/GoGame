@@ -257,7 +257,6 @@ class _SetupScreenState extends State<SetupScreen> {
       MaterialPageRoute(
         builder: (_) => BotPickerScreen(
           selected: selectedBot,
-          onPick: (bot) => Navigator.of(context).pop(bot),
         ),
       ),
     );

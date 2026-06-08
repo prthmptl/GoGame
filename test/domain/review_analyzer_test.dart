@@ -29,6 +29,36 @@ void main() {
     }
   });
 
+  test('analysis is deterministic for the same game', () async {
+    var state = GameState.newGame(const GameConfig(boardSize: 9));
+    for (final p in const [
+      Point(4, 4),
+      Point(2, 2),
+      Point(4, 6),
+      Point(6, 4),
+      Point(3, 4),
+      Point(6, 5),
+    ]) {
+      final r = Rules.apply(state, MoveIntent.place(p));
+      state = r.newStateAs<GameState>();
+    }
+
+    final first = await ReviewAnalyzer().analyze(state);
+    final second = await ReviewAnalyzer().analyze(state);
+
+    expect(second.blunders, first.blunders);
+    expect(second.mistakes, first.mistakes);
+    expect(second.inaccuracies, first.inaccuracies);
+    expect(
+      second.moves.map((m) => m.quality),
+      first.moves.map((m) => m.quality),
+    );
+    expect(
+      second.moves.map((m) => m.recommended),
+      first.moves.map((m) => m.recommended),
+    );
+  });
+
   test('classifies an obvious blunder by missing a capture', () async {
     // Set up white in atari at d4; black has dc, cd, ed.
     // Black to move: any move that isn't de leaves the white stone alive.

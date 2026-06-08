@@ -6,12 +6,10 @@ import '../components/zen_components.dart';
 
 class BotPickerScreen extends StatelessWidget {
   final BotProfile? selected;
-  final ValueChanged<BotProfile> onPick;
 
   const BotPickerScreen({
     super.key,
     required this.selected,
-    required this.onPick,
   });
 
   @override
@@ -41,10 +39,7 @@ class BotPickerScreen extends StatelessWidget {
               _BotCard(
                 bot: bot,
                 selected: bot.id == selected?.id,
-                onTap: () {
-                  onPick(bot);
-                  Navigator.maybePop(context);
-                },
+                onTap: () => Navigator.of(context).pop(bot),
               ),
               const SizedBox(height: 10),
             ],

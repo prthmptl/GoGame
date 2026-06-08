@@ -1,3 +1,4 @@
+import '../domain/clock/time_control.dart';
 import '../domain/game_state.dart';
 import '../domain/models.dart';
 import '../domain/rules.dart';
@@ -21,6 +22,16 @@ class SavedGameEntity {
   final String sgfPath;
   final double? blackTotal;
   final double? whiteTotal;
+  final String gameVariant;
+  final String botName;
+  final String botStyle;
+  final String aiDifficulty;
+  final String timeControlKind;
+  final int timeMainSeconds;
+  final int timeIncrementSeconds;
+  final int timePeriodSeconds;
+  final int timePeriods;
+  final int timeStonesPerPeriod;
 
   const SavedGameEntity({
     required this.id,
@@ -38,6 +49,16 @@ class SavedGameEntity {
     this.sgfPath = '',
     this.blackTotal,
     this.whiteTotal,
+    this.gameVariant = 'standard',
+    this.botName = '',
+    this.botStyle = '',
+    this.aiDifficulty = 'beginner',
+    this.timeControlKind = 'absolute',
+    this.timeMainSeconds = 600,
+    this.timeIncrementSeconds = 0,
+    this.timePeriodSeconds = 0,
+    this.timePeriods = 0,
+    this.timeStonesPerPeriod = 0,
   });
 
   Map<String, Object?> toRow() => {
@@ -56,6 +77,16 @@ class SavedGameEntity {
         'sgfPath': sgfPath,
         'blackTotal': blackTotal,
         'whiteTotal': whiteTotal,
+        'gameVariant': gameVariant,
+        'botName': botName,
+        'botStyle': botStyle,
+        'aiDifficulty': aiDifficulty,
+        'timeControlKind': timeControlKind,
+        'timeMainSeconds': timeMainSeconds,
+        'timeIncrementSeconds': timeIncrementSeconds,
+        'timePeriodSeconds': timePeriodSeconds,
+        'timePeriods': timePeriods,
+        'timeStonesPerPeriod': timeStonesPerPeriod,
       };
 
   static SavedGameEntity fromRow(Map<String, Object?> r) => SavedGameEntity(
@@ -74,10 +105,25 @@ class SavedGameEntity {
         sgfPath: r['sgfPath'] as String? ?? '',
         blackTotal: (r['blackTotal'] as num?)?.toDouble(),
         whiteTotal: (r['whiteTotal'] as num?)?.toDouble(),
+        gameVariant: r['gameVariant'] as String? ?? 'standard',
+        botName: r['botName'] as String? ?? '',
+        botStyle: r['botStyle'] as String? ?? '',
+        aiDifficulty: r['aiDifficulty'] as String? ?? 'beginner',
+        timeControlKind: r['timeControlKind'] as String? ?? 'absolute',
+        timeMainSeconds: (r['timeMainSeconds'] as num?)?.toInt() ?? 600,
+        timeIncrementSeconds:
+            (r['timeIncrementSeconds'] as num?)?.toInt() ?? 0,
+        timePeriodSeconds: (r['timePeriodSeconds'] as num?)?.toInt() ?? 0,
+        timePeriods: (r['timePeriods'] as num?)?.toInt() ?? 0,
+        timeStonesPerPeriod:
+            (r['timeStonesPerPeriod'] as num?)?.toInt() ?? 0,
       );
 }
 
 class GameSerializer {
+  static const _defaultTimeControl =
+      TimeControl.absolute(mainSeconds: 10 * 60);
+
   static String _statusName(GameStatus s) => switch (s) {
         GameStatus.active => 'ACTIVE',
         GameStatus.scoring => 'SCORING',
@@ -141,6 +187,41 @@ class GameSerializer {
     String youColor = 'BLACK',
     String sgfPath = '',
     ScoreResult? score,
+    TimeControl? timeControl,
+    String? botName,
+    String? botStyle,
+    AiDifficulty aiDifficulty = AiDifficulty.beginner,
+  }) =>
+      _toEntity(
+        id: id,
+        state: state,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        opponentLabel: opponentLabel,
+        resultLabel: resultLabel,
+        youColor: youColor,
+        sgfPath: sgfPath,
+        score: score,
+        timeControl: timeControl ?? _defaultTimeControl,
+        botName: botName,
+        botStyle: botStyle,
+        aiDifficulty: aiDifficulty,
+      );
+
+  static SavedGameEntity _toEntity({
+    required String id,
+    required GameState state,
+    required int createdAt,
+    required int updatedAt,
+    required String opponentLabel,
+    required String resultLabel,
+    required String youColor,
+    required String sgfPath,
+    required ScoreResult? score,
+    required TimeControl timeControl,
+    required String? botName,
+    required String? botStyle,
+    required AiDifficulty aiDifficulty,
   }) =>
       SavedGameEntity(
         id: id,
@@ -158,6 +239,16 @@ class GameSerializer {
         sgfPath: sgfPath,
         blackTotal: score?.blackTotal,
         whiteTotal: score?.whiteTotal,
+        gameVariant: state.config.variant.name,
+        botName: botName ?? '',
+        botStyle: botStyle ?? '',
+        aiDifficulty: aiDifficulty.name,
+        timeControlKind: timeControl.kind.name,
+        timeMainSeconds: timeControl.mainSeconds,
+        timeIncrementSeconds: timeControl.incrementSeconds,
+        timePeriodSeconds: timeControl.periodSeconds,
+        timePeriods: timeControl.periods,
+        timeStonesPerPeriod: timeControl.stonesPerPeriod,
       );
 
   static GameState fromEntity(SavedGameEntity e) {
@@ -170,6 +261,7 @@ class GameSerializer {
       handicap: e.handicap,
       allowSuicide: defaults.allowSuicide,
       superkoMode: defaults.superkoMode,
+      variant: _gameVariantFrom(e.gameVariant),
     );
     var s = decode(cfg, e.movesEncoded);
     if (s.status == GameStatus.active &&
@@ -177,6 +269,43 @@ class GameSerializer {
       s = s.copyWith(status: GameStatus.scoring);
     }
     return s;
+  }
+
+  static TimeControl timeControlFromEntity(SavedGameEntity e) {
+    final kind = _timeKindFrom(e.timeControlKind);
+    return switch (kind) {
+      TimeControlKind.none => const TimeControl.none(),
+      TimeControlKind.absolute =>
+        TimeControl.absolute(mainSeconds: e.timeMainSeconds),
+      TimeControlKind.fischer => TimeControl.fischer(
+          mainSeconds: e.timeMainSeconds,
+          incrementSeconds: e.timeIncrementSeconds,
+        ),
+      TimeControlKind.byoYomi => TimeControl.byoYomi(
+          mainSeconds: e.timeMainSeconds,
+          periods: e.timePeriods,
+          periodSeconds: e.timePeriodSeconds,
+        ),
+      TimeControlKind.canadian => TimeControl.canadian(
+          mainSeconds: e.timeMainSeconds,
+          stonesPerPeriod: e.timeStonesPerPeriod,
+          periodSeconds: e.timePeriodSeconds,
+        ),
+    };
+  }
+
+  static GameVariant _gameVariantFrom(String value) {
+    for (final variant in GameVariant.values) {
+      if (variant.name.toLowerCase() == value.toLowerCase()) return variant;
+    }
+    return GameVariant.standard;
+  }
+
+  static TimeControlKind _timeKindFrom(String value) {
+    for (final kind in TimeControlKind.values) {
+      if (kind.name.toLowerCase() == value.toLowerCase()) return kind;
+    }
+    return TimeControlKind.absolute;
   }
 
   static Ruleset _rulesetFrom(String s) {

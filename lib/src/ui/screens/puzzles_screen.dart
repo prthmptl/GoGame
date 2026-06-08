@@ -7,13 +7,11 @@ import '../components/zen_components.dart';
 class PuzzlesScreen extends StatefulWidget {
   final PuzzleRepo repo;
   final ValueChanged<Puzzle> onOpenPuzzle;
-  final VoidCallback onStartRush;
 
   const PuzzlesScreen({
     super.key,
     required this.repo,
     required this.onOpenPuzzle,
-    required this.onStartRush,
   });
 
   @override
@@ -80,35 +78,6 @@ class _PuzzlesScreenState extends State<PuzzlesScreen> {
                     _Stat(label: 'Best', value: '${streak.best}d'),
                   ],
                 ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          ZenCard(
-            container: scheme.surfaceContainerHigh,
-            onTap: widget.onStartRush,
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('PUZZLE RUSH',
-                          style: text.labelSmall
-                              ?.copyWith(letterSpacing: 1.4)),
-                      const SizedBox(height: 4),
-                      Text('3-minute sprint',
-                          style: text.headlineSmall),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Solve as many as you can. Best: ${repo.rushBest()}',
-                        style: text.bodyMedium?.copyWith(
-                            color: scheme.onSurfaceVariant),
-                      ),
-                    ],
-                  ),
-                ),
-                Icon(Icons.timer, color: scheme.primary, size: 28),
               ],
             ),
           ),

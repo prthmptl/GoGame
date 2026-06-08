@@ -4,11 +4,14 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../../data/saved_game.dart';
 import '../../data/saved_game_repo.dart';
 import '../../domain/ai/advanced_ai.dart';
 import '../../domain/ai/beginner_ai.dart';
 import '../../domain/ai/go_ai.dart';
 import '../../domain/ai/intermediate_ai.dart';
+import '../../domain/ai/styled_ai.dart';
+import '../../domain/bots/bot_profile.dart';
 import '../../domain/clock/clock_controller.dart';
 import '../../domain/clock/time_control.dart';
 import '../../domain/game_state.dart';
@@ -31,6 +34,7 @@ class GameUi {
   final StoneColor aiPlays;
   final AiDifficulty aiDifficulty;
   final String? botName;
+  final BotStyle? botStyle;
   final String? sgf;
   final TimeControl timeControl;
   final ClockSnapshot blackClock;
@@ -49,6 +53,7 @@ class GameUi {
     this.aiPlays = StoneColor.white,
     this.aiDifficulty = AiDifficulty.beginner,
     this.botName,
+    this.botStyle,
     this.sgf,
     required this.timeControl,
     required this.blackClock,
@@ -68,6 +73,7 @@ class GameUi {
     StoneColor? aiPlays,
     AiDifficulty? aiDifficulty,
     Object? botName = _sentinel,
+    Object? botStyle = _sentinel,
     Object? sgf = _sentinel,
     TimeControl? timeControl,
     ClockSnapshot? blackClock,
@@ -89,6 +95,9 @@ class GameUi {
         aiDifficulty: aiDifficulty ?? this.aiDifficulty,
         botName:
             identical(botName, _sentinel) ? this.botName : botName as String?,
+        botStyle: identical(botStyle, _sentinel)
+            ? this.botStyle
+            : botStyle as BotStyle?,
         sgf: identical(sgf, _sentinel) ? this.sgf : sgf as String?,
         timeControl: timeControl ?? this.timeControl,
         blackClock: blackClock ?? this.blackClock,
@@ -146,6 +155,10 @@ class GameViewModel extends ChangeNotifier {
       state: cur.state,
       opponentLabel: _opponentLabel(cur),
       youColor: _youColor(cur),
+      timeControl: cur.timeControl,
+      botName: cur.botName,
+      botStyle: cur.botStyle?.name,
+      aiDifficulty: cur.aiDifficulty,
     ));
   }
 
@@ -160,6 +173,10 @@ class GameViewModel extends ChangeNotifier {
         youColor: _youColor(cur),
         resultLabel: resultLabel,
         score: cur.score,
+        timeControl: cur.timeControl,
+        botName: cur.botName,
+        botStyle: cur.botStyle?.name,
+        aiDifficulty: cur.aiDifficulty,
       );
       await repo!.clearCurrent();
     }());
@@ -186,9 +203,10 @@ class GameViewModel extends ChangeNotifier {
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
     TimeControl timeControl = _defaultTimeControl,
     String? botName,
+    BotStyle? botStyle,
     bool showHints = false,
   }) {
-    _ai = _buildAi(aiDifficulty);
+    _ai = _buildAi(aiDifficulty, botStyle: botStyle);
     _clock = ClockController(timeControl, active: StoneColor.black);
     _set(GameUi(
       state: GameState.newGame(config),
@@ -196,6 +214,7 @@ class GameViewModel extends ChangeNotifier {
       aiPlays: aiPlays,
       aiDifficulty: aiDifficulty,
       botName: botName,
+      botStyle: botStyle,
       timeControl: timeControl,
       blackClock: _clock.black,
       whiteClock: _clock.white,
@@ -210,13 +229,17 @@ class GameViewModel extends ChangeNotifier {
     Opponent opponent = Opponent.human,
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
     TimeControl timeControl = _defaultTimeControl,
+    String? botName,
+    BotStyle? botStyle,
   }) {
-    _ai = _buildAi(aiDifficulty);
+    _ai = _buildAi(aiDifficulty, botStyle: botStyle);
     _clock = ClockController(timeControl, active: state.currentPlayer);
     _set(GameUi(
       state: state,
       opponent: opponent,
       aiDifficulty: aiDifficulty,
+      botName: botName,
+      botStyle: botStyle,
       timeControl: timeControl,
       blackClock: _clock.black,
       whiteClock: _clock.white,
@@ -235,16 +258,27 @@ class GameViewModel extends ChangeNotifier {
     }
     final isAi = entity.opponentLabel.startsWith('Practice') ||
         entity.opponentLabel.startsWith('AI');
-    final aiDifficulty = _difficultyFromLabel(entity.opponentLabel);
+    final aiDifficulty = _difficultyFromLabel(
+      entity.aiDifficulty.isNotEmpty
+          ? entity.aiDifficulty
+          : entity.opponentLabel,
+    );
     final youColor = _stoneColorFromLabel(entity.youColor);
-    _ai = _buildAi(aiDifficulty);
-    _clock = ClockController(_defaultTimeControl, active: state.currentPlayer);
+    final timeControl = GameSerializer.timeControlFromEntity(entity);
+    final botStyle = _botStyleFromLabel(entity.botStyle);
+    final botName = entity.botName.isNotEmpty
+        ? entity.botName
+        : _botNameFromOpponentLabel(entity.opponentLabel);
+    _ai = _buildAi(aiDifficulty, botStyle: botStyle);
+    _clock = ClockController(timeControl, active: state.currentPlayer);
     _set(GameUi(
       state: state,
       opponent: isAi ? Opponent.ai : Opponent.human,
       aiPlays: isAi ? youColor.other : StoneColor.white,
       aiDifficulty: aiDifficulty,
-      timeControl: _defaultTimeControl,
+      botName: isAi ? botName : null,
+      botStyle: isAi ? botStyle : null,
+      timeControl: timeControl,
       blackClock: _clock.black,
       whiteClock: _clock.white,
     ));
@@ -375,15 +409,14 @@ class GameViewModel extends ChangeNotifier {
     });
   }
 
-  GoAi _buildAi(AiDifficulty difficulty) {
-    switch (difficulty) {
-      case AiDifficulty.beginner:
-        return BeginnerAi();
-      case AiDifficulty.intermediate:
-        return IntermediateAi();
-      case AiDifficulty.advanced:
-        return AdvancedAi();
-    }
+  GoAi _buildAi(AiDifficulty difficulty, {BotStyle? botStyle}) {
+    final base = switch (difficulty) {
+      AiDifficulty.beginner => BeginnerAi(),
+      AiDifficulty.intermediate => IntermediateAi(),
+      AiDifficulty.advanced => AdvancedAi(),
+    };
+    if (botStyle == null || botStyle == BotStyle.balanced) return base;
+    return StyledAi(base: base, style: botStyle);
   }
 
   AiDifficulty _difficultyFromLabel(String label) {
@@ -397,6 +430,18 @@ class GameViewModel extends ChangeNotifier {
 
   StoneColor _stoneColorFromLabel(String value) =>
       value.toUpperCase() == 'WHITE' ? StoneColor.white : StoneColor.black;
+
+  BotStyle? _botStyleFromLabel(String value) {
+    for (final style in BotStyle.values) {
+      if (style.name.toLowerCase() == value.toLowerCase()) return style;
+    }
+    return null;
+  }
+
+  String? _botNameFromOpponentLabel(String label) {
+    final marker = RegExp(r'^Practice\s+·\s+(.+)$').firstMatch(label);
+    return marker?.group(1);
+  }
 
   void toggleDead(Point p) {
     final cur = _ui;

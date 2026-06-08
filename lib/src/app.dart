@@ -24,7 +24,6 @@ import 'ui/screens/home_screen.dart';
 import 'ui/screens/lesson_player_screen.dart';
 import 'ui/screens/onboarding_screen.dart';
 import 'ui/screens/profile_screen.dart';
-import 'ui/screens/puzzle_rush_screen.dart';
 import 'ui/screens/puzzle_screen.dart';
 import 'ui/screens/puzzles_screen.dart';
 import 'ui/screens/review_screen.dart';
@@ -90,9 +89,9 @@ class _GoAppState extends State<GoApp> {
                 onOpenPuzzle: (puzzle) {
                   final daily = widget.puzzles.dailyPuzzle();
                   final isDaily = daily?.id == puzzle.id;
-                  context.push('/puzzle/${puzzle.id}${isDaily ? '?daily=1' : ''}');
+                  context
+                      .push('/puzzle/${puzzle.id}${isDaily ? '?daily=1' : ''}');
                 },
-                onStartRush: () => context.push('/puzzle-rush'),
               ),
             ),
             GoRoute(
@@ -144,6 +143,7 @@ class _GoAppState extends State<GoApp> {
                 aiPlays: StoneColor.white,
                 aiDifficulty: bot.engine,
                 botName: bot.name,
+                botStyle: bot.style,
                 showHints: widget.settings.value.beginnerHints,
               );
               context.go('/game');
@@ -163,6 +163,7 @@ class _GoAppState extends State<GoApp> {
                   aiDifficulty: setup.aiDifficulty,
                   timeControl: setup.timeControl,
                   botName: setup.bot?.name,
+                  botStyle: setup.bot?.style,
                   showHints: widget.settings.value.beginnerHints,
                 );
                 context.pushReplacement('/game');
@@ -183,6 +184,7 @@ class _GoAppState extends State<GoApp> {
                   aiDifficulty: setup.aiDifficulty,
                   timeControl: setup.timeControl,
                   botName: setup.bot?.name,
+                  botStyle: setup.bot?.style,
                   showHints: widget.settings.value.beginnerHints,
                 );
                 context.pushReplacement('/game');
@@ -198,13 +200,6 @@ class _GoAppState extends State<GoApp> {
               settings: widget.settings,
               onExit: () => context.go('/play'),
             ),
-          ),
-        ),
-        GoRoute(
-          path: '/puzzle-rush',
-          builder: (context, state) => PuzzleRushScreen(
-            repo: widget.puzzles,
-            settings: widget.settings,
           ),
         ),
         GoRoute(

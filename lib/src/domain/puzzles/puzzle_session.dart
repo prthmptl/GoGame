@@ -105,7 +105,13 @@ class PuzzleSession {
   }
 
   void _advance(PuzzleNode node) {
-    _applyMove(node.move);
+    final applied = _applyMove(node.move);
+    if (!applied && node.outcome != NodeOutcome.wrong) {
+      _mistakes += 1;
+      _lastWrongMove = node.move.point;
+      _lastComment = 'That puzzle line is not legal from this position.';
+      return;
+    }
     if (node.outcome == NodeOutcome.correct) {
       _status = PuzzleStatus.solved;
       _expected = const [];
@@ -132,7 +138,13 @@ class PuzzleSession {
       _expected = replies;
       return;
     }
-    _applyMove(reply.move);
+    final replyApplied = _applyMove(reply.move);
+    if (!replyApplied) {
+      _status = PuzzleStatus.failed;
+      _expected = const [];
+      _lastComment = 'The puzzle response is not legal from this position.';
+      return;
+    }
     if (reply.outcome == NodeOutcome.correct) {
       _status = PuzzleStatus.solved;
       _expected = const [];
@@ -151,11 +163,13 @@ class PuzzleSession {
     _expected = reply.children;
   }
 
-  void _applyMove(PuzzleMove move) {
+  bool _applyMove(PuzzleMove move) {
     final res = Rules.apply(_state, MoveIntent.place(move.point));
     if (res.isAccepted) {
       _state = res.newStateAs<GameState>();
+      return true;
     }
+    return false;
   }
 
   static GameState _seedState(Puzzle puzzle) {

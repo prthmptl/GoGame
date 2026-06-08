@@ -83,6 +83,7 @@ class VariationTree {
     for (final node in path) {
       final move = node.move;
       if (move == null) continue;
+      if (move.player != state.currentPlayer) return null;
       final intent = switch (move.type) {
         MoveType.pass => const MoveIntent.pass(),
         MoveType.resign => const MoveIntent.resign(),
@@ -206,6 +207,7 @@ class VariationTreeBuilder {
     for (final sgf in sgfChildren) {
       final move = _parseMove(sgf, state);
       if (move == null) continue;
+      if (move.player != state.currentPlayer) continue;
       final res = Rules.apply(
         state,
         switch (move.type) {
@@ -244,11 +246,13 @@ class VariationTreeBuilder {
       return null;
     }
     final isPass = raw.isEmpty || raw == 'tt';
+    final point = isPass ? null : _parsePoint(raw, boardSize);
+    if (!isPass && point == null) return null;
     return Move(
       moveNumber: state.moveNumber + 1,
       player: player,
       type: isPass ? MoveType.pass : MoveType.placeStone,
-      point: isPass ? null : _parsePoint(raw, boardSize),
+      point: point,
       captured: const [],
     );
   }
@@ -268,4 +272,3 @@ class VariationTreeBuilder {
     return -1;
   }
 }
-
