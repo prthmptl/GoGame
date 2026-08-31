@@ -1,0 +1,50 @@
+# Fly.io deployment for the API. The worker runs as a second process group
+# so it scales independently of request traffic.
+#
+# One-time setup:
+#   fly launch --no-deploy --name gogame-api
+#   fly postgres create --name gogame-pg      && fly postgres attach gogame-pg
+#   fly redis create     --name gogame-redis  # sets REDIS_URL
+#   fly secrets set JWT_SECRET="$(openssl rand -base64 48)"
+#   fly secrets set GOOGLE_CLIENT_IDS="<android>.apps.googleusercontent.com,<ios>...,<web>..."
+
+app = "gogame-api"
+primary_region = "iad"
+
+[build]
+  dockerfile = "../Dockerfile"
+
+[processes]
+  api    = "/usr/local/bin/api"
+  worker = "/usr/local/bin/worker"
+
+[env]
+  APP_ENV = "production"
+  PORT    = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["api"]
+
+  # /readyz checks Postgres and Redis, so an instance that loses either is
+  # pulled out of rotation instead of serving errors.
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/readyz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["api"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  processes = ["worker"]
