@@ -18,17 +18,23 @@ import (
 	"github.com/prathpatel/gogame-backend/internal/api"
 	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
+	"github.com/prathpatel/gogame-backend/internal/billing"
 	"github.com/prathpatel/gogame-backend/internal/blob"
 	"github.com/prathpatel/gogame-backend/internal/chat"
+	"github.com/prathpatel/gogame-backend/internal/clubs"
+	"github.com/prathpatel/gogame-backend/internal/coaching"
 	"github.com/prathpatel/gogame-backend/internal/config"
 	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/game"
 	"github.com/prathpatel/gogame-backend/internal/logging"
 	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
+	"github.com/prathpatel/gogame-backend/internal/openings"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/progames"
 	"github.com/prathpatel/gogame-backend/internal/rating"
 	"github.com/prathpatel/gogame-backend/internal/rooms"
+	"github.com/prathpatel/gogame-backend/internal/social"
 	"github.com/prathpatel/gogame-backend/internal/store"
 	"github.com/prathpatel/gogame-backend/internal/tournament"
 	"github.com/prathpatel/gogame-backend/internal/ws"
@@ -129,13 +135,24 @@ func run() error {
 			Anticheat:      cheatSvc,
 			Correspondence: correspondence.NewService(st.DB),
 			Tournament:     tournament.NewService(st.DB),
-			Hub:            hub,
-			Matchmaking:    matcher,
-			Rooms:          rooms.NewService(st.DB),
-			Chat:           chat.NewService(st.DB, st.Redis),
-			WS:             ws.NewServer(authSvc, hub, lg, allowedOrigins()),
-			Log:            lg,
-			Version:        version,
+			Clubs:          clubs.NewService(st.DB),
+			Social:         social.NewService(st.DB),
+			Openings:       openings.NewService(st.DB),
+			ProGames:       progames.NewService(st.DB, blobStore),
+			// Payments are not executed without a processor account; the
+			// no-op processor lets bookings work while money does not move.
+			Coaching: coaching.NewService(st.DB, coaching.NoopProcessor{}),
+			Billing:  billing.NewService(st.DB),
+			// Receipt validation fails closed until store credentials exist,
+			// so an unverified receipt can never grant an entitlement.
+			IAP:         billing.NewIAPService(st.DB, billing.UnconfiguredValidator{}),
+			Hub:         hub,
+			Matchmaking: matcher,
+			Rooms:       rooms.NewService(st.DB),
+			Chat:        chat.NewService(st.DB, st.Redis),
+			WS:          ws.NewServer(authSvc, hub, lg, allowedOrigins()),
+			Log:         lg,
+			Version:     version,
 		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No ReadTimeout or WriteTimeout: they would kill WebSocket

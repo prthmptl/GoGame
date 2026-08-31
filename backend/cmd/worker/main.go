@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prathpatel/gogame-backend/internal/billing"
 	"github.com/prathpatel/gogame-backend/internal/config"
 	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/logging"
@@ -76,6 +77,7 @@ func run() error {
 	roomSvc := rooms.NewService(st.DB)
 	ratingSvc := rating.NewService(st.DB)
 	corrSvc := correspondence.NewService(st.DB)
+	iapSvc := billing.NewIAPService(st.DB, billing.UnconfiguredValidator{})
 
 	// E4: correspondence deadlines are checked every minute. Daily games have
 	// day-long budgets, so a minute of slack is immaterial and the query is
@@ -96,6 +98,7 @@ func run() error {
 			pruneExpiredTokens(ctx, st, lg)
 			sweepRooms(ctx, roomSvc, lg)
 			decayRatings(ctx, ratingSvc, lg)
+			expireSubscriptions(ctx, iapSvc, lg)
 		case <-leaderboard.C:
 			refreshLeaderboard(ctx, profiles, lg)
 		case <-pushes.C:
@@ -201,6 +204,21 @@ func drainVacations(ctx context.Context, c *correspondence.Service, lg *slog.Log
 	}
 	if len(exhausted) > 0 {
 		lg.Info("vacations ended", "users", len(exhausted))
+	}
+}
+
+// expireSubscriptions downgrades lapsed subscribers (G1).
+//
+// Access is driven by expires_at everywhere else, so this is bookkeeping
+// rather than enforcement: a lapsed row already resolves to the free tier.
+func expireSubscriptions(ctx context.Context, iap *billing.IAPService, lg *slog.Logger) {
+	n, err := iap.ExpireLapsed(ctx)
+	if err != nil {
+		lg.Error("subscription expiry failed", "error", err)
+		return
+	}
+	if n > 0 {
+		lg.Info("subscriptions expired", "rows", n)
 	}
 }
 

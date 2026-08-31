@@ -15,14 +15,20 @@ import (
 	"github.com/prathpatel/gogame-backend/internal/anticheat"
 	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
+	"github.com/prathpatel/gogame-backend/internal/billing"
 	"github.com/prathpatel/gogame-backend/internal/chat"
+	"github.com/prathpatel/gogame-backend/internal/clubs"
+	"github.com/prathpatel/gogame-backend/internal/coaching"
 	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/game"
 	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
+	"github.com/prathpatel/gogame-backend/internal/openings"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/progames"
 	"github.com/prathpatel/gogame-backend/internal/rating"
 	"github.com/prathpatel/gogame-backend/internal/rooms"
+	"github.com/prathpatel/gogame-backend/internal/social"
 	"github.com/prathpatel/gogame-backend/internal/store"
 	"github.com/prathpatel/gogame-backend/internal/tournament"
 	"github.com/prathpatel/gogame-backend/internal/ws"
@@ -44,6 +50,13 @@ type Server struct {
 	anticheat      *anticheat.Service
 	correspondence *correspondence.Service
 	tournament     *tournament.Service
+	clubs          *clubs.Service
+	social         *social.Service
+	openings       *openings.Service
+	progames       *progames.Service
+	coaching       *coaching.Service
+	billing        *billing.Service
+	iap            *billing.IAPService
 	log            *slog.Logger
 	version        string
 }
@@ -64,6 +77,13 @@ type Deps struct {
 	Anticheat      *anticheat.Service
 	Correspondence *correspondence.Service
 	Tournament     *tournament.Service
+	Clubs          *clubs.Service
+	Social         *social.Service
+	Openings       *openings.Service
+	ProGames       *progames.Service
+	Coaching       *coaching.Service
+	Billing        *billing.Service
+	IAP            *billing.IAPService
 	Log            *slog.Logger
 	Version        string
 }
@@ -76,6 +96,9 @@ func New(d Deps) *Server {
 		rooms: d.Rooms, chat: d.Chat, ws: d.WS,
 		rating: d.Rating, anticheat: d.Anticheat,
 		correspondence: d.Correspondence, tournament: d.Tournament,
+		clubs: d.Clubs, social: d.Social, openings: d.Openings,
+		progames: d.ProGames, coaching: d.Coaching,
+		billing: d.Billing, iap: d.IAP,
 		log: d.Log, version: d.Version,
 	}
 }
@@ -157,6 +180,59 @@ func (s *Server) Routes() http.Handler {
 	get("/games/{id}/conditional-moves", s.handleGetPlan)
 	mux.HandleFunc("PUT /games/{id}/conditional-moves",
 		withObservability(s.log, "/games/{id}/conditional-moves", s.authenticated(s.handleSetPlan)))
+
+	// F1: clubs.
+	get("/clubs", s.handleListClubs)
+	post("/clubs", s.handleCreateClub)
+	get("/clubs/{slug}", s.handleGetClub)
+	get("/clubs/{slug}/members", s.handleClubMembers)
+	post("/clubs/{slug}/join", s.handleJoinClub)
+	post("/clubs/{slug}/leave", s.handleLeaveClub)
+	get("/clubs/{slug}/threads", s.handleClubThreads)
+	post("/clubs/{slug}/threads", s.handleCreateThread)
+	get("/threads/{id}/posts", s.handleThreadPosts)
+	post("/threads/{id}/posts", s.handleReplyToThread)
+
+	// F2: friends, DMs, feed and reports.
+	post("/users/{id}/follow", s.handleFollow)
+	post("/users/{id}/unfollow", s.handleUnfollow)
+	post("/users/{id}/block", s.handleBlock)
+	get("/users/me/friends", s.handleFriends)
+	get("/users/me/following", s.handleFollowing)
+	post("/users/{id}/messages", s.handleSendDM)
+	get("/users/{id}/messages", s.handleConversation)
+	get("/users/me/feed", s.handleFeed)
+	post("/reports", s.handleReport)
+
+	// F3: opening explorer.
+	post("/openings/lookup", s.handleOpeningLookup)
+
+	// F4: pro games and relays.
+	get("/pro-games", s.handleSearchProGames)
+	get("/pro-games/{id}/sgf", s.handleProGameSGF)
+	get("/relays", s.handleLiveRelays)
+	get("/relays/{id}", s.handleGetRelay)
+
+	// F5: coaching.
+	get("/coaches", s.handleListCoaches)
+	post("/coaches/apply", s.handleApplyAsCoach)
+	get("/coaches/{id}/availability", s.handleCoachAvailability)
+	mux.HandleFunc("PUT /coaches/me/availability",
+		withObservability(s.log, "/coaches/me/availability", s.authenticated(s.handleSetAvailability)))
+	post("/coaches/{id}/book", s.handleBookCoach)
+	get("/users/me/coaching-sessions", s.handleMyCoachingSessions)
+	post("/coaching-sessions/{id}/review", s.handleReviewCoach)
+
+	// G1/G2/G3: billing, entitlements and ads.
+	get("/entitlements", s.handleEntitlements)
+	post("/entitlements/{feature}/consume", s.handleConsume)
+	get("/subscription", s.handleSubscription)
+	post("/purchases/redeem", s.handleRedeemPurchase)
+	get("/ads/policy", s.handleAdPolicy)
+	// Store webhooks carry no bearer token; the handler verifies the
+	// notification itself.
+	mux.HandleFunc("POST /webhooks/store/{platform}",
+		withObservability(s.log, "/webhooks/store/{platform}", s.handleStoreWebhook))
 
 	// E2: the admin review queue.
 	get("/admin/cheat-cases", s.handleCheatQueue)
@@ -301,7 +377,9 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, profile.ErrNotFound), errors.Is(err, archive.ErrNotFound),
 		errors.Is(err, game.ErrGameNotFound), errors.Is(err, rooms.ErrNotFound),
 		errors.Is(err, tournament.ErrNotFound), errors.Is(err, correspondence.ErrNotFound),
-		errors.Is(err, anticheat.ErrNotFound):
+		errors.Is(err, anticheat.ErrNotFound), errors.Is(err, clubs.ErrNotFound),
+		errors.Is(err, social.ErrNotFound), errors.Is(err, coaching.ErrNotFound),
+		errors.Is(err, progames.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.Is(err, auth.ErrIdentityTaken):
 		writeError(w, http.StatusConflict, "identity_taken",
