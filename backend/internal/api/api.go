@@ -12,48 +12,60 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/prathpatel/gogame-backend/internal/anticheat"
 	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
 	"github.com/prathpatel/gogame-backend/internal/chat"
+	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/game"
 	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/rating"
 	"github.com/prathpatel/gogame-backend/internal/rooms"
 	"github.com/prathpatel/gogame-backend/internal/store"
+	"github.com/prathpatel/gogame-backend/internal/tournament"
 	"github.com/prathpatel/gogame-backend/internal/ws"
 )
 
 // Server holds the API dependencies.
 type Server struct {
-	store       *store.Store
-	auth        *auth.Service
-	profile     *profile.Service
-	archive     *archive.Service
-	notify      *notify.Service
-	hub         *game.Hub
-	matchmaking *matchmaking.Service
-	rooms       *rooms.Service
-	chat        *chat.Service
-	ws          *ws.Server
-	log         *slog.Logger
-	version     string
+	store          *store.Store
+	auth           *auth.Service
+	profile        *profile.Service
+	archive        *archive.Service
+	notify         *notify.Service
+	hub            *game.Hub
+	matchmaking    *matchmaking.Service
+	rooms          *rooms.Service
+	chat           *chat.Service
+	ws             *ws.Server
+	rating         *rating.Service
+	anticheat      *anticheat.Service
+	correspondence *correspondence.Service
+	tournament     *tournament.Service
+	log            *slog.Logger
+	version        string
 }
 
 // Deps are the services the API depends on.
 type Deps struct {
-	Store       *store.Store
-	Auth        *auth.Service
-	Profile     *profile.Service
-	Archive     *archive.Service
-	Notify      *notify.Service
-	Hub         *game.Hub
-	Matchmaking *matchmaking.Service
-	Rooms       *rooms.Service
-	Chat        *chat.Service
-	WS          *ws.Server
-	Log         *slog.Logger
-	Version     string
+	Store          *store.Store
+	Auth           *auth.Service
+	Profile        *profile.Service
+	Archive        *archive.Service
+	Notify         *notify.Service
+	Hub            *game.Hub
+	Matchmaking    *matchmaking.Service
+	Rooms          *rooms.Service
+	Chat           *chat.Service
+	WS             *ws.Server
+	Rating         *rating.Service
+	Anticheat      *anticheat.Service
+	Correspondence *correspondence.Service
+	Tournament     *tournament.Service
+	Log            *slog.Logger
+	Version        string
 }
 
 // New builds a Server.
@@ -62,6 +74,8 @@ func New(d Deps) *Server {
 		store: d.Store, auth: d.Auth, profile: d.Profile, archive: d.Archive,
 		notify: d.Notify, hub: d.Hub, matchmaking: d.Matchmaking,
 		rooms: d.Rooms, chat: d.Chat, ws: d.WS,
+		rating: d.Rating, anticheat: d.Anticheat,
+		correspondence: d.Correspondence, tournament: d.Tournament,
 		log: d.Log, version: d.Version,
 	}
 }
@@ -123,6 +137,31 @@ func (s *Server) Routes() http.Handler {
 	post("/rooms/{code}/join", s.handleJoinRoom)
 	post("/rooms/{code}/start", s.handleStartRoom)
 	get("/games/{id}/chat", s.handleChatHistory)
+
+	// E1: ratings.
+	get("/users/me/ratings", s.handleMyRatings)
+	get("/users/me/ratings/history", s.handleRatingHistory)
+
+	// E3: tournaments.
+	get("/tournaments", s.handleListTournaments)
+	get("/tournaments/{id}", s.handleGetTournament)
+	get("/tournaments/{id}/standings", s.handleTournamentStandings)
+	post("/tournaments/{id}/join", s.handleJoinTournament)
+	post("/tournaments/{id}/withdraw", s.handleWithdrawTournament)
+
+	// E4: correspondence.
+	get("/games/{id}/correspondence", s.handleCorrespondenceState)
+	get("/users/me/vacation", s.handleGetVacation)
+	post("/users/me/vacation/start", s.handleStartVacation)
+	post("/users/me/vacation/end", s.handleEndVacation)
+	get("/games/{id}/conditional-moves", s.handleGetPlan)
+	mux.HandleFunc("PUT /games/{id}/conditional-moves",
+		withObservability(s.log, "/games/{id}/conditional-moves", s.authenticated(s.handleSetPlan)))
+
+	// E2: the admin review queue.
+	get("/admin/cheat-cases", s.handleCheatQueue)
+	get("/admin/cheat-cases/{id}", s.handleGetCheatCase)
+	post("/admin/cheat-cases/{id}/resolve", s.handleResolveCheatCase)
 
 	return mux
 }
@@ -260,7 +299,9 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, auth.ErrInvalidToken):
 		writeError(w, http.StatusUnauthorized, "invalid_token", "token is not valid")
 	case errors.Is(err, profile.ErrNotFound), errors.Is(err, archive.ErrNotFound),
-		errors.Is(err, game.ErrGameNotFound), errors.Is(err, rooms.ErrNotFound):
+		errors.Is(err, game.ErrGameNotFound), errors.Is(err, rooms.ErrNotFound),
+		errors.Is(err, tournament.ErrNotFound), errors.Is(err, correspondence.ErrNotFound),
+		errors.Is(err, anticheat.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.Is(err, auth.ErrIdentityTaken):
 		writeError(w, http.StatusConflict, "identity_taken",

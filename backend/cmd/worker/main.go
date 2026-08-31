@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/prathpatel/gogame-backend/internal/config"
+	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/logging"
 	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/rating"
 	"github.com/prathpatel/gogame-backend/internal/rooms"
 	"github.com/prathpatel/gogame-backend/internal/store"
 )
@@ -72,6 +74,14 @@ func run() error {
 
 	matcher := matchmaking.NewService(st.Redis)
 	roomSvc := rooms.NewService(st.DB)
+	ratingSvc := rating.NewService(st.DB)
+	corrSvc := correspondence.NewService(st.DB)
+
+	// E4: correspondence deadlines are checked every minute. Daily games have
+	// day-long budgets, so a minute of slack is immaterial and the query is
+	// cheap against the partial index.
+	daily := time.NewTicker(time.Minute)
+	defer daily.Stop()
 
 	lg.Info("worker started")
 	pruneExpiredTokens(ctx, st, lg)
@@ -85,12 +95,16 @@ func run() error {
 		case <-hourly.C:
 			pruneExpiredTokens(ctx, st, lg)
 			sweepRooms(ctx, roomSvc, lg)
+			decayRatings(ctx, ratingSvc, lg)
 		case <-leaderboard.C:
 			refreshLeaderboard(ctx, profiles, lg)
 		case <-pushes.C:
 			deliverNotifications(ctx, notifier, lg)
 		case <-pairing.C:
 			pairWaitingPlayers(ctx, matcher, lg)
+		case <-daily.C:
+			expireCorrespondence(ctx, corrSvc, st, lg)
+			drainVacations(ctx, corrSvc, lg)
 		}
 	}
 }
@@ -136,6 +150,57 @@ func sweepRooms(ctx context.Context, r *rooms.Service, lg *slog.Logger) {
 	}
 	if n > 0 {
 		lg.Info("expired rooms closed", "rooms", n)
+	}
+}
+
+// decayRatings raises deviation for players who have not played in a while,
+// so a rating that has gone stale becomes uncertain again (E1).
+func decayRatings(ctx context.Context, r *rating.Service, lg *slog.Logger) {
+	n, err := r.DecayInactive(ctx, 30*24*time.Hour)
+	if err != nil {
+		lg.Error("rating decay failed", "error", err)
+		return
+	}
+	if n > 0 {
+		lg.Info("ratings decayed for inactivity", "rows", n)
+	}
+}
+
+// expireCorrespondence forfeits daily games whose deadline has passed (E4).
+func expireCorrespondence(ctx context.Context, c *correspondence.Service, st *store.Store, lg *slog.Logger) {
+	expired, err := c.Expired(ctx, 100)
+	if err != nil {
+		lg.Error("correspondence expiry scan failed", "error", err)
+		return
+	}
+	for _, state := range expired {
+		winner := "white"
+		letter := "W"
+		if state.ToMove == "white" {
+			winner, letter = "black", "B"
+		}
+		// The player on move ran out of days, so they lose on time.
+		if _, err := st.DB.Exec(ctx, `
+			UPDATE games SET status = 'completed', winner = $2, result = $3,
+			       end_reason = 'timeout', ended_at = now()
+			WHERE id = $1 AND status = 'active'`,
+			state.GameID, winner, letter+"+T"); err != nil {
+			lg.Error("correspondence timeout failed", "gameId", state.GameID, "error", err)
+			continue
+		}
+		lg.Info("correspondence game timed out", "gameId", state.GameID, "winner", winner)
+	}
+}
+
+// drainVacations ends vacations for players whose banked days ran out (E4).
+func drainVacations(ctx context.Context, c *correspondence.Service, lg *slog.Logger) {
+	exhausted, err := c.DrainVacationDays(ctx)
+	if err != nil {
+		lg.Error("vacation drain failed", "error", err)
+		return
+	}
+	if len(exhausted) > 0 {
+		lg.Info("vacations ended", "users", len(exhausted))
 	}
 }
 

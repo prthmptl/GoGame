@@ -14,19 +14,23 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/prathpatel/gogame-backend/internal/anticheat"
 	"github.com/prathpatel/gogame-backend/internal/api"
 	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
 	"github.com/prathpatel/gogame-backend/internal/blob"
 	"github.com/prathpatel/gogame-backend/internal/chat"
 	"github.com/prathpatel/gogame-backend/internal/config"
+	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/game"
 	"github.com/prathpatel/gogame-backend/internal/logging"
 	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/rating"
 	"github.com/prathpatel/gogame-backend/internal/rooms"
 	"github.com/prathpatel/gogame-backend/internal/store"
+	"github.com/prathpatel/gogame-backend/internal/tournament"
 	"github.com/prathpatel/gogame-backend/internal/ws"
 )
 
@@ -102,7 +106,13 @@ func run() error {
 	if instanceID == "" {
 		instanceID = uuid.NewString()
 	}
-	hub := game.NewHub(st.DB, st.Redis, instanceID, game.Hooks{})
+	ratingSvc := rating.NewService(st.DB)
+	cheatSvc := anticheat.NewService(st.DB)
+	archiveSvc := archive.NewService(st.DB, blobStore)
+	notifySvc := notify.NewService(st.DB, pushSender)
+
+	hub := game.NewHub(st.DB, st.Redis, instanceID,
+		api.GameHooks(st.DB, ratingSvc, cheatSvc, archiveSvc, notifySvc, lg))
 	matcher := matchmaking.NewService(st.Redis)
 	matcher.Pair = api.PairPlayers(hub)
 	lg.Info("game hub ready", "instance", instanceID)
@@ -110,18 +120,22 @@ func run() error {
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		Handler: api.New(api.Deps{
-			Store:       st,
-			Auth:        authSvc,
-			Profile:     profile.NewService(st.DB),
-			Archive:     archive.NewService(st.DB, blobStore),
-			Notify:      notify.NewService(st.DB, pushSender),
-			Hub:         hub,
-			Matchmaking: matcher,
-			Rooms:       rooms.NewService(st.DB),
-			Chat:        chat.NewService(st.DB, st.Redis),
-			WS:          ws.NewServer(authSvc, hub, lg, allowedOrigins()),
-			Log:         lg,
-			Version:     version,
+			Store:          st,
+			Auth:           authSvc,
+			Profile:        profile.NewService(st.DB),
+			Archive:        archiveSvc,
+			Notify:         notifySvc,
+			Rating:         ratingSvc,
+			Anticheat:      cheatSvc,
+			Correspondence: correspondence.NewService(st.DB),
+			Tournament:     tournament.NewService(st.DB),
+			Hub:            hub,
+			Matchmaking:    matcher,
+			Rooms:          rooms.NewService(st.DB),
+			Chat:           chat.NewService(st.DB, st.Redis),
+			WS:             ws.NewServer(authSvc, hub, lg, allowedOrigins()),
+			Log:            lg,
+			Version:        version,
 		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 		// No ReadTimeout or WriteTimeout: they would kill WebSocket
