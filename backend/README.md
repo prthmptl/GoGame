@@ -1,7 +1,6 @@
 # GoGame Backend
 
-Phase C of `BACKEND_SCOPE.md`. This module covers **C1 (stack + infra)** and
-**C2 (auth)**. C3–C5 and Phases D–G are not started.
+Implements Phases **C through G** of `BACKEND_SCOPE.md`.
 
 Stack is as C1 recommends: Go, Postgres 16, Redis 7, containerized deploys on
 Fly.io.
@@ -14,16 +13,45 @@ Fly.io.
 ## Layout
 
 ```
-cmd/api/          HTTP server
-cmd/worker/       background jobs (token pruning today; D3 clock watcher,
-                  D4 pairing loop later)
-internal/config/  environment configuration with startup validation
-internal/logging/ structured logging (slog; text in dev, JSON elsewhere)
-internal/metrics/ Prometheus collectors
-internal/store/   pgx pool, Redis client, embedded migrations
-internal/auth/    C2: guest, Google, refresh rotation
-internal/api/     routing, middleware, handlers
-deploy/           fly.toml, docker-compose for local dependencies
+cmd/api/            HTTP + WebSocket server, game hub, matchmaking loop
+cmd/worker/         scheduled jobs (see "Worker jobs" below)
+
+internal/config/    environment configuration with startup validation
+internal/logging/   structured logging (slog; text in dev, JSON elsewhere)
+internal/metrics/   Prometheus collectors
+internal/store/     pgx pool, Redis client, embedded migrations
+internal/blob/      S3-compatible object storage (SigV4, no AWS SDK)
+internal/api/       routing, middleware, handlers
+
+internal/auth/          C2  guest / Google / refresh rotation
+internal/profile/       C3  profile sync, achievements, leaderboards
+internal/archive/       C4  game archive and SGF retrieval
+internal/notify/        C5  device tokens, prefs, transactional outbox, FCM
+
+internal/goban/         the rules engine: board, groups, rules, scoring, SGF
+internal/clock/         D3  server-authoritative clocks
+internal/game/          D2  session actor + hub with Redis routing
+internal/ws/            D1  WebSocket protocol
+internal/matchmaking/   D4  queues, rating expansion, pairing
+internal/rooms/         D5  friend rooms and spectating
+internal/chat/          D5  in-game chat, rate limit, profanity filter
+
+internal/rating/        E1  Glicko-2
+internal/anticheat/     E2  signals, scoring, review queue
+internal/tournament/    E3  arena / Swiss / McMahon / knockout
+internal/correspondence/E4  daily games, vacation, conditional moves
+
+internal/clubs/         F1  clubs, forums, team matches
+internal/social/        F2  follows, DMs, reports, activity feed
+internal/openings/      F3  joseki / opening explorer
+internal/progames/      F4  pro game library and live relays
+internal/coaching/      F5  coach marketplace
+
+internal/billing/       G1  subscriptions and IAP
+                        G2  entitlements and feature gating
+                        G3  ad policy
+
+deploy/             fly.toml, docker-compose for local dependencies
 ```
 
 ## Running locally
@@ -130,3 +158,61 @@ need rating, deviation and volatility rather than a single integer.
 
 Tagging `backend-v*` builds the image and deploys via `deploy/fly.toml`.
 First-time Fly setup is documented at the top of that file.
+
+## The rules engine and the client
+
+`internal/goban` is a parallel implementation of the Flutter client's
+`lib/src/domain`, as D2 specifies. One divergence is deliberate and worth
+knowing about:
+
+The client hashes positions with a Zobrist table seeded from Dart's
+`math.Random`, whose sequence no other language reproduces. Superko is
+therefore checked with **each engine's own internal hash**, which is only ever
+compared against itself. Anything that crosses the wire — `GAME_SNAPSHOT`,
+`MOVE_PLAYED`, `game_moves.state_hash`, the opening index key — uses
+`StateHash`, a SHA-256 over the board bytes and side to move, which is
+identical in any implementation.
+
+If you ever port the engine again, reproduce `StateHash`, not the Zobrist
+table.
+
+## Worker jobs
+
+| Job | Cadence | Phase |
+|---|---|---|
+| Deliver push notifications | 10s | C5 |
+| Matchmaking pairing sweep | 2s (in the API, where the hub lives) | D4 |
+| Clock timeout watcher | 1s (in the API) | D3 |
+| Correspondence deadlines + vacation drain | 1min | E4 |
+| Leaderboard refresh | 5min | C3 |
+| Reap finished sessions | 30s (in the API) | D2 |
+| Prune refresh tokens, sweep rooms, decay ratings, expire subscriptions | hourly | C2/D5/E1/G1 |
+
+## What needs credentials before it works
+
+These are wired and tested, but inert until someone supplies an account:
+
+| Feature | Needs | Behaviour without it |
+|---|---|---|
+| Push notifications (C5) | `FCM_PROJECT_ID` + service account | Queued in the outbox, never sent |
+| SGF object storage (C4) | `S3_BUCKET` and keys | In-memory store, lost on restart |
+| Google sign-in (C2) | `GOOGLE_CLIENT_IDS` | `/auth/google` rejects every token |
+| Purchases (G1) | App Store / Play credentials | `/purchases/redeem` returns 503 |
+| Coach payouts (F5) | A payment processor account | Bookings work, no money moves |
+| Admin review queue (E2) | `ADMIN_USER_IDS` | All `/admin/*` routes return 403 |
+
+Two of these fail **closed** on purpose. An unverified receipt must never
+grant an entitlement, and an unconfigured Google client must never
+authenticate anyone.
+
+## Not built here
+
+`BACKEND_SCOPE.md` includes work that is not engineering, and none of it is
+in this repository:
+
+- Provisioning Postgres, Redis and object storage in staging and production
+- App Store Connect and Play Console subscription products
+- Licensing a professional game database for F3/F4 (the importer is written;
+  the games are not included)
+- Broadcaster agreements for live relays
+- Recruiting coaches, and the trust-and-safety operations behind E2 and F2
