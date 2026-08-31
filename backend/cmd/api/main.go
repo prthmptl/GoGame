@@ -12,9 +12,13 @@ import (
 	"time"
 
 	"github.com/prathpatel/gogame-backend/internal/api"
+	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
+	"github.com/prathpatel/gogame-backend/internal/blob"
 	"github.com/prathpatel/gogame-backend/internal/config"
 	"github.com/prathpatel/gogame-backend/internal/logging"
+	"github.com/prathpatel/gogame-backend/internal/notify"
+	"github.com/prathpatel/gogame-backend/internal/profile"
 	"github.com/prathpatel/gogame-backend/internal/store"
 )
 
@@ -58,9 +62,34 @@ func run() error {
 		RefreshTTL: cfg.RefreshTokenTTL,
 	})
 
+	// Object storage is optional: without S3_BUCKET the archive keeps SGF
+	// bodies in memory, which is fine for local development.
+	var blobStore blob.Store
+	if s3 := blob.NewS3FromEnv(); s3 != nil {
+		blobStore = s3
+		lg.Info("object storage enabled", "bucket", s3.Bucket)
+	} else {
+		blobStore = blob.NewMemory()
+		lg.Warn("S3_BUCKET not set; SGF bodies are in-memory and will not survive a restart")
+	}
+
+	var pushSender notify.Sender = notify.NoopSender{}
+	if fcm := notify.NewFCMFromEnv(); fcm != nil {
+		pushSender = fcm
+		lg.Info("push notifications enabled", "project", fcm.ProjectID)
+	}
+
 	srv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", cfg.Port),
-		Handler:           api.New(st, authSvc, lg, version).Routes(),
+		Addr: fmt.Sprintf(":%d", cfg.Port),
+		Handler: api.New(api.Deps{
+			Store:   st,
+			Auth:    authSvc,
+			Profile: profile.NewService(st.DB),
+			Archive: archive.NewService(st.DB, blobStore),
+			Notify:  notify.NewService(st.DB, pushSender),
+			Log:     lg,
+			Version: version,
+		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

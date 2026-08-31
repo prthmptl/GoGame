@@ -69,10 +69,32 @@ func (s *Store) Close() {
 	}
 }
 
+// migrationLockKey is an arbitrary constant identifying the migration
+// advisory lock. Any value works as long as it is stable across processes.
+const migrationLockKey int64 = 0x60_6A_4D_16
+
 // Migrate applies every embedded *.up.sql not yet recorded in
 // schema_migrations, in filename order, each in its own transaction.
+//
+// Several instances start at once on every deploy, so the whole run is held
+// under a session-level advisory lock: without it two processes both observe
+// a migration as unapplied and the loser fails on an already-existing object.
 func (s *Store) Migrate(ctx context.Context) error {
-	_, err := s.DB.Exec(ctx, `
+	conn, err := s.DB.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire migration conn: %w", err)
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("acquire migration lock: %w", err)
+	}
+	defer func() {
+		// Best effort: releasing also happens implicitly when the session ends.
+		_, _ = conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, migrationLockKey)
+	}()
+
+	_, err = conn.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version     TEXT PRIMARY KEY,
 			applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -95,7 +117,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 	for _, name := range versions {
 		var exists bool
-		if err := s.DB.QueryRow(ctx,
+		if err := conn.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM schema_migrations WHERE version = $1)`,
 			name).Scan(&exists); err != nil {
 			return fmt.Errorf("check migration %s: %w", name, err)
@@ -107,7 +129,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", name, err)
 		}
-		tx, err := s.DB.Begin(ctx)
+		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return fmt.Errorf("begin %s: %w", name, err)
 		}

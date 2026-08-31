@@ -12,7 +12,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
+	"github.com/prathpatel/gogame-backend/internal/notify"
+	"github.com/prathpatel/gogame-backend/internal/profile"
 	"github.com/prathpatel/gogame-backend/internal/store"
 )
 
@@ -20,13 +23,30 @@ import (
 type Server struct {
 	store   *store.Store
 	auth    *auth.Service
+	profile *profile.Service
+	archive *archive.Service
+	notify  *notify.Service
 	log     *slog.Logger
 	version string
 }
 
+// Deps are the services the API depends on.
+type Deps struct {
+	Store   *store.Store
+	Auth    *auth.Service
+	Profile *profile.Service
+	Archive *archive.Service
+	Notify  *notify.Service
+	Log     *slog.Logger
+	Version string
+}
+
 // New builds a Server.
-func New(st *store.Store, authSvc *auth.Service, lg *slog.Logger, version string) *Server {
-	return &Server{store: st, auth: authSvc, log: lg, version: version}
+func New(d Deps) *Server {
+	return &Server{
+		store: d.Store, auth: d.Auth, profile: d.Profile, archive: d.Archive,
+		notify: d.Notify, log: d.Log, version: d.Version,
+	}
 }
 
 // Routes returns the HTTP handler for the API.
@@ -42,6 +62,30 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /auth/guest", withObservability(s.log, "/auth/guest", s.handleGuest))
 	mux.HandleFunc("POST /auth/google", withObservability(s.log, "/auth/google", s.handleGoogle))
 	mux.HandleFunc("POST /auth/refresh", withObservability(s.log, "/auth/refresh", s.handleRefresh))
+
+	// C3: profile, sync, achievements, leaderboards.
+	get := func(path string, h http.HandlerFunc) {
+		mux.HandleFunc("GET "+path, withObservability(s.log, path, s.authenticated(h)))
+	}
+	post := func(path string, h http.HandlerFunc) {
+		mux.HandleFunc("POST "+path, withObservability(s.log, path, s.authenticated(h)))
+	}
+	get("/users/me", s.handleGetMe)
+	mux.HandleFunc("PATCH /users/me", withObservability(s.log, "/users/me", s.authenticated(s.handlePatchMe)))
+	post("/users/me/sync", s.handleSync)
+	get("/users/me/achievements", s.handleAchievements)
+	get("/leaderboards/global", s.handleLeaderboard)
+
+	// C4: game archive.
+	get("/games", s.handleListGames)
+	get("/games/{id}", s.handleGetGame)
+	get("/games/{id}/moves", s.handleGameMoves)
+	get("/games/{id}/sgf", s.handleGameSGF)
+
+	// C5: notifications.
+	post("/notifications/devices", s.handleRegisterDevice)
+	get("/notifications/prefs", s.handleGetNotificationPrefs)
+	mux.HandleFunc("PUT /notifications/prefs", withObservability(s.log, "/notifications/prefs", s.authenticated(s.handleSetNotificationPref)))
 
 	return mux
 }
@@ -178,6 +222,8 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "token_revoked", "refresh token revoked")
 	case errors.Is(err, auth.ErrInvalidToken):
 		writeError(w, http.StatusUnauthorized, "invalid_token", "token is not valid")
+	case errors.Is(err, profile.ErrNotFound), errors.Is(err, archive.ErrNotFound):
+		writeError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.Is(err, auth.ErrIdentityTaken):
 		writeError(w, http.StatusConflict, "identity_taken",
 			"that Google account is already linked to another player")
