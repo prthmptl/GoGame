@@ -8,18 +8,26 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/prathpatel/gogame-backend/internal/api"
 	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
 	"github.com/prathpatel/gogame-backend/internal/blob"
+	"github.com/prathpatel/gogame-backend/internal/chat"
 	"github.com/prathpatel/gogame-backend/internal/config"
+	"github.com/prathpatel/gogame-backend/internal/game"
 	"github.com/prathpatel/gogame-backend/internal/logging"
+	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/rooms"
 	"github.com/prathpatel/gogame-backend/internal/store"
+	"github.com/prathpatel/gogame-backend/internal/ws"
 )
 
 // version is stamped at build time: -ldflags "-X main.version=$(git rev-parse --short HEAD)".
@@ -30,6 +38,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// allowedOrigins lists the browser origins permitted to open a WebSocket.
+// The mobile app sends no Origin header, so it is unaffected.
+func allowedOrigins() []string {
+	if raw := os.Getenv("ALLOWED_WS_ORIGINS"); raw != "" {
+		return strings.Split(raw, ",")
+	}
+	return nil
 }
 
 func run() error {
@@ -79,22 +96,87 @@ func run() error {
 		lg.Info("push notifications enabled", "project", fcm.ProjectID)
 	}
 
+	// One hub per process. The instance id is what Redis records as the owner
+	// of each live game, so it must be unique per running API instance.
+	instanceID := os.Getenv("FLY_MACHINE_ID")
+	if instanceID == "" {
+		instanceID = uuid.NewString()
+	}
+	hub := game.NewHub(st.DB, st.Redis, instanceID, game.Hooks{})
+	matcher := matchmaking.NewService(st.Redis)
+	matcher.Pair = api.PairPlayers(hub)
+	lg.Info("game hub ready", "instance", instanceID)
+
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		Handler: api.New(api.Deps{
-			Store:   st,
-			Auth:    authSvc,
-			Profile: profile.NewService(st.DB),
-			Archive: archive.NewService(st.DB, blobStore),
-			Notify:  notify.NewService(st.DB, pushSender),
-			Log:     lg,
-			Version: version,
+			Store:       st,
+			Auth:        authSvc,
+			Profile:     profile.NewService(st.DB),
+			Archive:     archive.NewService(st.DB, blobStore),
+			Notify:      notify.NewService(st.DB, pushSender),
+			Hub:         hub,
+			Matchmaking: matcher,
+			Rooms:       rooms.NewService(st.DB),
+			Chat:        chat.NewService(st.DB, st.Redis),
+			WS:          ws.NewServer(authSvc, hub, lg, allowedOrigins()),
+			Log:         lg,
+			Version:     version,
 		}).Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		// No ReadTimeout or WriteTimeout: they would kill WebSocket
+		// connections mid-game. Per-request deadlines are applied by the
+		// handlers, and the WebSocket layer enforces its own idle timeout.
+		IdleTimeout: 120 * time.Second,
 	}
+
+	// D3's timeout watcher: charge every live game so a player who abandons
+	// mid-game actually loses on time.
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				hub.TickAll()
+			}
+		}
+	}()
+
+	// D4's pairing loop runs here rather than in the worker: creating a game
+	// means starting its session, and sessions live in this process's hub.
+	go func() {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if _, err := matcher.PairOnce(ctx); err != nil {
+					lg.Error("matchmaking sweep failed", "error", err)
+				}
+			}
+		}
+	}()
+
+	// Drop finished sessions so a long-lived instance does not accumulate them.
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if n := hub.Reap(ctx); n > 0 {
+					lg.Info("reaped finished games", "games", n, "live", hub.LiveCount())
+				}
+			}
+		}
+	}()
 
 	errCh := make(chan error, 1)
 	go func() {

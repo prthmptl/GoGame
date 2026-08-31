@@ -173,12 +173,18 @@ func TestAwardIsIdempotent(t *testing.T) {
 func TestLeaderboardRanksByRating(t *testing.T) {
 	svc := profile.NewService(pool)
 	ctx := context.Background()
+	// Rate above every existing row so the assertion does not depend on rows
+	// left behind by earlier runs (the view tie-breaks on created_at).
 	var top uuid.UUID
 	if err := pool.QueryRow(ctx, `
-		INSERT INTO users (display_name, is_guest, rating) VALUES ('Champ', FALSE, 30000)
+		INSERT INTO users (display_name, is_guest, rating)
+		VALUES ('Champ', FALSE, (SELECT COALESCE(MAX(rating), 0) + 1000 FROM users))
 		RETURNING id`).Scan(&top); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, top)
+	})
 	if err := svc.RefreshLeaderboard(ctx); err != nil {
 		t.Fatalf("refresh: %v", err)
 	}

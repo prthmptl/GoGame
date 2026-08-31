@@ -16,8 +16,10 @@ import (
 
 	"github.com/prathpatel/gogame-backend/internal/config"
 	"github.com/prathpatel/gogame-backend/internal/logging"
+	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/rooms"
 	"github.com/prathpatel/gogame-backend/internal/store"
 )
 
@@ -64,6 +66,12 @@ func run() error {
 	defer leaderboard.Stop()
 	pushes := time.NewTicker(10 * time.Second)
 	defer pushes.Stop()
+	// D4 specifies a pairing sweep every 2 seconds.
+	pairing := time.NewTicker(2 * time.Second)
+	defer pairing.Stop()
+
+	matcher := matchmaking.NewService(st.Redis)
+	roomSvc := rooms.NewService(st.DB)
 
 	lg.Info("worker started")
 	pruneExpiredTokens(ctx, st, lg)
@@ -76,10 +84,13 @@ func run() error {
 			return nil
 		case <-hourly.C:
 			pruneExpiredTokens(ctx, st, lg)
+			sweepRooms(ctx, roomSvc, lg)
 		case <-leaderboard.C:
 			refreshLeaderboard(ctx, profiles, lg)
 		case <-pushes.C:
 			deliverNotifications(ctx, notifier, lg)
+		case <-pairing.C:
+			pairWaitingPlayers(ctx, matcher, lg)
 		}
 	}
 }
@@ -94,6 +105,38 @@ func refreshLeaderboard(ctx context.Context, p *profile.Service, lg *slog.Logger
 		return
 	}
 	lg.Info("leaderboard refreshed", "durationMs", time.Since(start).Milliseconds())
+}
+
+// pairWaitingPlayers runs one D4 pairing sweep.
+//
+// The worker does not hold game sessions, so pairing here creates the game
+// row via the API's hub through Redis; when no Pair function is configured
+// (worker-only deployments) the sweep is a no-op and the API instances pair
+// instead.
+func pairWaitingPlayers(ctx context.Context, m *matchmaking.Service, lg *slog.Logger) {
+	if m.Pair == nil {
+		return
+	}
+	paired, err := m.PairOnce(ctx)
+	if err != nil {
+		lg.Error("matchmaking sweep failed", "error", err)
+		return
+	}
+	if paired > 0 {
+		lg.Info("players paired", "games", paired)
+	}
+}
+
+// sweepRooms closes D5 rooms nobody used.
+func sweepRooms(ctx context.Context, r *rooms.Service, lg *slog.Logger) {
+	n, err := r.SweepExpired(ctx)
+	if err != nil {
+		lg.Error("room sweep failed", "error", err)
+		return
+	}
+	if n > 0 {
+		lg.Info("expired rooms closed", "rooms", n)
+	}
 }
 
 // deliverNotifications drains the C5 outbox.

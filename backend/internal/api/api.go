@@ -14,38 +14,55 @@ import (
 
 	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
+	"github.com/prathpatel/gogame-backend/internal/chat"
+	"github.com/prathpatel/gogame-backend/internal/game"
+	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
+	"github.com/prathpatel/gogame-backend/internal/rooms"
 	"github.com/prathpatel/gogame-backend/internal/store"
+	"github.com/prathpatel/gogame-backend/internal/ws"
 )
 
 // Server holds the API dependencies.
 type Server struct {
-	store   *store.Store
-	auth    *auth.Service
-	profile *profile.Service
-	archive *archive.Service
-	notify  *notify.Service
-	log     *slog.Logger
-	version string
+	store       *store.Store
+	auth        *auth.Service
+	profile     *profile.Service
+	archive     *archive.Service
+	notify      *notify.Service
+	hub         *game.Hub
+	matchmaking *matchmaking.Service
+	rooms       *rooms.Service
+	chat        *chat.Service
+	ws          *ws.Server
+	log         *slog.Logger
+	version     string
 }
 
 // Deps are the services the API depends on.
 type Deps struct {
-	Store   *store.Store
-	Auth    *auth.Service
-	Profile *profile.Service
-	Archive *archive.Service
-	Notify  *notify.Service
-	Log     *slog.Logger
-	Version string
+	Store       *store.Store
+	Auth        *auth.Service
+	Profile     *profile.Service
+	Archive     *archive.Service
+	Notify      *notify.Service
+	Hub         *game.Hub
+	Matchmaking *matchmaking.Service
+	Rooms       *rooms.Service
+	Chat        *chat.Service
+	WS          *ws.Server
+	Log         *slog.Logger
+	Version     string
 }
 
 // New builds a Server.
 func New(d Deps) *Server {
 	return &Server{
 		store: d.Store, auth: d.Auth, profile: d.Profile, archive: d.Archive,
-		notify: d.Notify, log: d.Log, version: d.Version,
+		notify: d.Notify, hub: d.Hub, matchmaking: d.Matchmaking,
+		rooms: d.Rooms, chat: d.Chat, ws: d.WS,
+		log: d.Log, version: d.Version,
 	}
 }
 
@@ -86,6 +103,26 @@ func (s *Server) Routes() http.Handler {
 	post("/notifications/devices", s.handleRegisterDevice)
 	get("/notifications/prefs", s.handleGetNotificationPrefs)
 	mux.HandleFunc("PUT /notifications/prefs", withObservability(s.log, "/notifications/prefs", s.authenticated(s.handleSetNotificationPref)))
+
+	// D1: the WebSocket endpoint. Not wrapped in withObservability, whose
+	// per-request logging and latency histogram are meaningless for a
+	// long-lived connection.
+	if s.ws != nil {
+		mux.HandleFunc("GET /ws", s.ws.Handle)
+	}
+
+	// D4: matchmaking.
+	post("/matchmaking/tickets", s.handleEnqueue)
+	get("/matchmaking/tickets/{id}", s.handleGetTicket)
+	mux.HandleFunc("DELETE /matchmaking/tickets/{id}",
+		withObservability(s.log, "/matchmaking/tickets/{id}", s.authenticated(s.handleCancelTicket)))
+
+	// D5: rooms and chat.
+	post("/rooms", s.handleCreateRoom)
+	get("/rooms/{code}", s.handleGetRoom)
+	post("/rooms/{code}/join", s.handleJoinRoom)
+	post("/rooms/{code}/start", s.handleStartRoom)
+	get("/games/{id}/chat", s.handleChatHistory)
 
 	return mux
 }
@@ -222,7 +259,8 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "token_revoked", "refresh token revoked")
 	case errors.Is(err, auth.ErrInvalidToken):
 		writeError(w, http.StatusUnauthorized, "invalid_token", "token is not valid")
-	case errors.Is(err, profile.ErrNotFound), errors.Is(err, archive.ErrNotFound):
+	case errors.Is(err, profile.ErrNotFound), errors.Is(err, archive.ErrNotFound),
+		errors.Is(err, game.ErrGameNotFound), errors.Is(err, rooms.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found", "not found")
 	case errors.Is(err, auth.ErrIdentityTaken):
 		writeError(w, http.StatusConflict, "identity_taken",
