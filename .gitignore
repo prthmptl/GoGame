@@ -46,3 +46,6 @@ build/
 
 # macOS
 .DS_Store
+
+# Backend
+backend/bin/

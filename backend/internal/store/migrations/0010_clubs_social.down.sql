@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS activity_events;
+DROP TABLE IF EXISTS reports;
+DROP TABLE IF EXISTS direct_messages;
+DROP TABLE IF EXISTS blocks;
+DROP TABLE IF EXISTS friendships;
+DROP TABLE IF EXISTS club_thread_posts;
+DROP TABLE IF EXISTS club_threads;
+DROP TABLE IF EXISTS club_team_boards;
+DROP TABLE IF EXISTS club_team_matches;
+DROP TABLE IF EXISTS club_invitations;
+DROP TABLE IF EXISTS club_members;
+DROP TABLE IF EXISTS clubs;
