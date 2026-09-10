@@ -1,0 +1,299 @@
+[
+  {
+    "name": "capture and invalid moves",
+    "size": 9,
+    "rules": "chinese",
+    "handicap": 0,
+    "steps": [
+      {
+        "kind": "place",
+        "row": 1,
+        "col": 0,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 1,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": false
+      },
+      {
+        "kind": "place",
+        "row": 8,
+        "col": 8,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 1,
+        "accept": false
+      },
+      {
+        "kind": "place",
+        "row": -1,
+        "col": 0,
+        "accept": false
+      }
+    ],
+    "black": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "white": [
+      [
+        8,
+        8
+      ]
+    ],
+    "toMove": "black",
+    "status": "active",
+    "moves": 4,
+    "captures": [
+      1,
+      0
+    ]
+  },
+  {
+    "name": "situational suicide",
+    "size": 9,
+    "rules": "new_zealand",
+    "handicap": 0,
+    "steps": [
+      {
+        "kind": "place",
+        "row": 1,
+        "col": 0,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 1,
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": true
+      }
+    ],
+    "black": [
+      [
+        1,
+        0
+      ],
+      [
+        0,
+        1
+      ]
+    ],
+    "white": [],
+    "toMove": "black",
+    "status": "active",
+    "moves": 4,
+    "captures": [
+      2,
+      0
+    ]
+  },
+  {
+    "name": "two passes stop play",
+    "size": 9,
+    "rules": "japanese",
+    "handicap": 0,
+    "steps": [
+      {
+        "kind": "pass",
+        "accept": true
+      },
+      {
+        "kind": "pass",
+        "accept": true
+      },
+      {
+        "kind": "place",
+        "row": 4,
+        "col": 4,
+        "accept": false
+      }
+    ],
+    "black": [],
+    "white": [],
+    "toMove": "black",
+    "status": "scoring",
+    "moves": 2,
+    "captures": [
+      0,
+      0
+    ]
+  },
+  {
+    "name": "resignation is a numbered move",
+    "size": 9,
+    "rules": "aga",
+    "handicap": 0,
+    "steps": [
+      {
+        "kind": "place",
+        "row": 4,
+        "col": 4,
+        "accept": true
+      },
+      {
+        "kind": "resign",
+        "accept": true
+      }
+    ],
+    "black": [
+      [
+        4,
+        4
+      ]
+    ],
+    "white": [],
+    "toMove": "white",
+    "status": "resigned",
+    "moves": 2,
+    "captures": [
+      0,
+      0
+    ]
+  },
+  {
+    "name": "9 handicap starts with white",
+    "size": 9,
+    "rules": "chinese",
+    "handicap": 2,
+    "steps": [
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": true
+      }
+    ],
+    "black": [
+      [
+        2,
+        2
+      ],
+      [
+        6,
+        6
+      ]
+    ],
+    "white": [
+      [
+        0,
+        0
+      ]
+    ],
+    "toMove": "black",
+    "status": "active",
+    "moves": 1,
+    "captures": [
+      0,
+      0
+    ]
+  },
+  {
+    "name": "13 handicap starts with white",
+    "size": 13,
+    "rules": "chinese",
+    "handicap": 2,
+    "steps": [
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": true
+      }
+    ],
+    "black": [
+      [
+        3,
+        3
+      ],
+      [
+        9,
+        9
+      ]
+    ],
+    "white": [
+      [
+        0,
+        0
+      ]
+    ],
+    "toMove": "black",
+    "status": "active",
+    "moves": 1,
+    "captures": [
+      0,
+      0
+    ]
+  },
+  {
+    "name": "19 handicap starts with white",
+    "size": 19,
+    "rules": "chinese",
+    "handicap": 2,
+    "steps": [
+      {
+        "kind": "place",
+        "row": 0,
+        "col": 0,
+        "accept": true
+      }
+    ],
+    "black": [
+      [
+        3,
+        3
+      ],
+      [
+        15,
+        15
+      ]
+    ],
+    "white": [
+      [
+        0,
+        0
+      ]
+    ],
+    "toMove": "black",
+    "status": "active",
+    "moves": 1,
+    "captures": [
+      0,
+      0
+    ]
+  }
+]

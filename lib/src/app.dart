@@ -61,8 +61,7 @@ class _GoAppState extends State<GoApp> {
 
   GoRouter _buildRouter() {
     return GoRouter(
-      initialLocation:
-          widget.profile.value.onboarded ? '/play' : '/onboarding',
+      initialLocation: widget.profile.value.onboarded ? '/play' : '/onboarding',
       redirect: (context, state) {
         final loc = state.matchedLocation;
         if (!widget.profile.value.onboarded &&
@@ -211,8 +210,7 @@ class _GoAppState extends State<GoApp> {
         ),
         GoRoute(
           path: '/sandbox',
-          builder: (context, state) =>
-              SandboxScreen(settings: widget.settings),
+          builder: (context, state) => SandboxScreen(settings: widget.settings),
         ),
         GoRoute(
           path: '/profile',
@@ -662,7 +660,8 @@ class _PlayTabState extends State<_PlayTab> {
   }
 
   Future<void> _refresh() async {
-    final hasSaved = await widget.repo.loadCurrent() != null;
+    await widget.vm.saved;
+    final hasSaved = await widget.repo.loadCurrentEntity() != null;
     final completed = await widget.repo.listCompleted(limit: 5);
     if (!mounted) return;
     setState(() {

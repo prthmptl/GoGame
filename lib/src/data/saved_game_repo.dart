@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/clock/time_control.dart';
+import '../domain/clock/clock_controller.dart';
 import '../domain/game_state.dart';
 import '../domain/models.dart';
 import '../domain/scoring.dart';
@@ -26,11 +27,12 @@ class SavedGameRepo {
     final path = p.join(base.path, 'go_game.db');
     final db = await openDatabase(
       path,
-      version: 6,
+      version: 7,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE $_table (
             id TEXT PRIMARY KEY NOT NULL,
+            runtimeJson TEXT NOT NULL DEFAULT '{}',
             createdAtMillis INTEGER NOT NULL,
             updatedAtMillis INTEGER NOT NULL,
             boardSize INTEGER NOT NULL,
@@ -59,8 +61,12 @@ class SavedGameRepo {
         ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
-        // Defensive: add columns introduced after v1, ignore failures if already present.
+        // Inspect the schema so a real migration error is never swallowed.
+        final columns = (await db.rawQuery('PRAGMA table_info(saved_games)'))
+            .map((row) => row['name'] as String)
+            .toSet();
         for (final stmt in const [
+          "ALTER TABLE saved_games ADD COLUMN runtimeJson TEXT NOT NULL DEFAULT '{}'",
           "ALTER TABLE saved_games ADD COLUMN opponentLabel TEXT NOT NULL DEFAULT 'Local'",
           "ALTER TABLE saved_games ADD COLUMN resultLabel TEXT NOT NULL DEFAULT ''",
           "ALTER TABLE saved_games ADD COLUMN youColor TEXT NOT NULL DEFAULT 'BLACK'",
@@ -79,9 +85,8 @@ class SavedGameRepo {
           "ALTER TABLE saved_games ADD COLUMN timePeriods INTEGER NOT NULL DEFAULT 0",
           "ALTER TABLE saved_games ADD COLUMN timeStonesPerPeriod INTEGER NOT NULL DEFAULT 0",
         ]) {
-          try {
-            await db.execute(stmt);
-          } catch (_) {}
+          final name = stmt.split(' ')[5];
+          if (!columns.contains(name)) await db.execute(stmt);
         }
       },
     );
@@ -100,6 +105,9 @@ class SavedGameRepo {
     String? botName,
     String? botStyle,
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
+    ClockSnapshot? blackClock,
+    ClockSnapshot? whiteClock,
+    Set<Point> deadStones = const {},
   }) async {
     if (state.status != GameStatus.active &&
         state.status != GameStatus.scoring) {
@@ -119,6 +127,9 @@ class SavedGameRepo {
       botName: botName,
       botStyle: botStyle,
       aiDifficulty: aiDifficulty,
+      blackClock: blackClock,
+      whiteClock: whiteClock,
+      deadStones: deadStones,
     );
     await _db.insert(_table, entity.toRow(),
         conflictAlgorithm: ConflictAlgorithm.replace);
@@ -147,10 +158,11 @@ class SavedGameRepo {
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final id = 'game_$now';
+    final id = 'game_${DateTime.now().microsecondsSinceEpoch}';
     final sgfText = Sgf.export(
       state,
       score: score,
+      result: resultLabel,
       blackName: youColor == StoneColor.black ? 'You' : opponentLabel,
       whiteName: youColor == StoneColor.white ? 'You' : opponentLabel,
     );
@@ -171,8 +183,11 @@ class SavedGameRepo {
       botStyle: botStyle,
       aiDifficulty: aiDifficulty,
     );
-    await _db.insert(_table, entity.toRow(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await _db.transaction((txn) async {
+      await txn.insert(_table, entity.toRow(),
+          conflictAlgorithm: ConflictAlgorithm.replace);
+      await txn.delete(_table, where: 'id = ?', whereArgs: [_currentId]);
+    });
     return f.path;
   }
 

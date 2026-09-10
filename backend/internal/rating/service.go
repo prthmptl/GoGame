@@ -1,6 +1,7 @@
 package rating
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -124,6 +125,11 @@ func (s *Service) ApplyGame(ctx context.Context, res GameResult) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
+	// Serialize completion retries before checking history. Advisory locks are
+	// transaction-scoped, so a crash releases them automatically.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, res.GameID.String()); err != nil {
+		return err
+	}
 	// Already rated? Then this is a replay.
 	var already bool
 	if err := tx.QueryRow(ctx,
@@ -135,14 +141,25 @@ func (s *Service) ApplyGame(ctx context.Context, res GameResult) error {
 		return nil
 	}
 
-	black, err := s.lockRating(ctx, tx, res.BlackID, res.BoardSize, res.TimeClass)
-	if err != nil {
-		return err
+	// Lock user rows in a stable order across board/time categories too;
+	// users.rating is updated in this transaction alongside the category row.
+	ids := []uuid.UUID{res.BlackID, res.WhiteID}
+	if bytes.Compare(ids[0][:], ids[1][:]) > 0 {
+		ids[0], ids[1] = ids[1], ids[0]
 	}
-	white, err := s.lockRating(ctx, tx, res.WhiteID, res.BoardSize, res.TimeClass)
-	if err != nil {
-		return err
+	locked := map[uuid.UUID]Player{}
+	for _, id := range ids {
+		var found uuid.UUID
+		if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, id).Scan(&found); err != nil {
+			return err
+		}
+		player, err := s.lockRating(ctx, tx, id, res.BoardSize, res.TimeClass)
+		if err != nil {
+			return err
+		}
+		locked[id] = player
 	}
+	black, white := locked[res.BlackID], locked[res.WhiteID]
 
 	blackScore, whiteScore := Draw, Draw
 	switch res.Winner {
@@ -267,7 +284,7 @@ func (s *Service) DecayInactive(ctx context.Context, idleFor time.Duration) (int
 	tag, err := s.db.Exec(ctx, `
 		UPDATE ratings
 		SET deviation = LEAST(350, sqrt(deviation^2 +
-		        (EXTRACT(EPOCH FROM (now() - last_played_at)) / 604800) * volatility^2 * 173.7178^2)),
+		        (EXTRACT(EPOCH FROM (now() - GREATEST(last_played_at, updated_at))) / 604800) * volatility^2 * 173.7178^2)),
 		    updated_at = now()
 		WHERE last_played_at IS NOT NULL
 		  AND last_played_at < now() - $1::interval

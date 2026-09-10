@@ -1,9 +1,11 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -113,9 +115,9 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /metrics", promhttp.Handler())
 
 	// C2: auth.
-	mux.HandleFunc("POST /auth/guest", withObservability(s.log, "/auth/guest", s.handleGuest))
-	mux.HandleFunc("POST /auth/google", withObservability(s.log, "/auth/google", s.handleGoogle))
-	mux.HandleFunc("POST /auth/refresh", withObservability(s.log, "/auth/refresh", s.handleRefresh))
+	mux.HandleFunc("POST /auth/guest", withObservability(s.log, "/auth/guest", s.limitAuth(20, s.handleGuest)))
+	mux.HandleFunc("POST /auth/google", withObservability(s.log, "/auth/google", s.limitAuth(30, s.handleGoogle)))
+	mux.HandleFunc("POST /auth/refresh", withObservability(s.log, "/auth/refresh", s.limitAuth(120, s.handleRefresh)))
 
 	// C3: profile, sync, achievements, leaderboards.
 	get := func(path string, h http.HandlerFunc) {
@@ -363,6 +365,8 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 // fail maps domain errors to status codes, logging anything unexpected.
 func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, coaching.ErrPaymentsUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "payments_unconfigured", "coaching payments are not configured")
 	case errors.Is(err, auth.ErrTokenReplayed):
 		// 401 with a distinct code: the client must discard its tokens and
 		// send the user back through sign-in.
@@ -414,23 +418,33 @@ func decodeJSON(r *http.Request, dst any) error {
 		return errEmptyBody
 	}
 	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		if errors.Is(err, http.ErrBodyReadAfterClose) {
-			return errEmptyBody
-		}
-		if err.Error() == "EOF" {
+	var raw json.RawMessage
+	if err := dec.Decode(&raw); err != nil {
+		if errors.Is(err, io.EOF) {
 			return errEmptyBody
 		}
 		return err
 	}
-	return nil
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return errors.New("body must be a JSON object")
+	}
+	if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err
+		}
+		return errors.New("body must contain exactly one JSON object")
+	}
+	body := json.NewDecoder(bytes.NewReader(raw))
+	body.DisallowUnknownFields()
+	return body.Decode(dst)
 }
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	if status != http.StatusNoContent {
+		_ = json.NewEncoder(w).Encode(body)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {

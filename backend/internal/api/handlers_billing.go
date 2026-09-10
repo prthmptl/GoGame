@@ -1,10 +1,8 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/prathpatel/gogame-backend/internal/billing"
@@ -117,47 +115,10 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, sub)
 }
 
-// handleStoreWebhook receives renewal, refund and expiry notifications.
-//
-// Deliberately unauthenticated in the routing sense — stores cannot present a
-// bearer token — so the handler must verify the notification's own signature
-// before trusting it. That verification lives in the ReceiptValidator, which
-// is why an unconfigured server records the event but grants nothing.
+// Store signature verification is not wired yet. Reject before recording a
+// caller-supplied event id, which could otherwise poison deduplication.
 func (s *Server) handleStoreWebhook(w http.ResponseWriter, r *http.Request) {
-	platform := billing.Platform(r.PathValue("platform"))
-	switch platform {
-	case billing.PlatformIOS, billing.PlatformAndroid:
-	default:
-		writeError(w, http.StatusBadRequest, "unknown_platform", "unsupported store")
-		return
-	}
-
-	body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "unreadable", "could not read body")
-		return
-	}
-	var envelope struct {
-		NotificationUID string `json:"notificationUID"`
-		Kind            string `json:"kind"`
-	}
-	_ = json.Unmarshal(body, &envelope)
-	if envelope.NotificationUID == "" {
-		writeError(w, http.StatusBadRequest, "missing_uid",
-			"the notification has no identifier to deduplicate on")
-		return
-	}
-
-	// The receipt is nil here: without store credentials the payload cannot
-	// be verified, so the event is recorded for reconciliation and no
-	// entitlement is changed.
-	if err := s.iap.HandleWebhook(r.Context(), platform, envelope.NotificationUID,
-		envelope.Kind, body, nil); err != nil {
-		logging_(r).Error("webhook handling failed", "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error", "internal error")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeError(w, http.StatusServiceUnavailable, "billing_unconfigured", "store webhook verification is not configured")
 }
 
 // --- G3: ads ---

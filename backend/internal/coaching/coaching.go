@@ -72,10 +72,19 @@ type PaymentProcessor interface {
 	Refund(ctx context.Context, reference string) error
 }
 
-// NoopProcessor records nothing and charges nothing. It is the default so the
-// marketplace can be exercised end-to-end before a processor account exists —
-// bookings work, money does not move.
+// NoopProcessor is an explicit test double. Production uses
+// UnconfiguredProcessor until a real payment implementation is supplied.
 type NoopProcessor struct{}
+
+var ErrPaymentsUnavailable = errors.New("coaching payments are not configured")
+
+type UnconfiguredProcessor struct{}
+
+func (UnconfiguredProcessor) Authorize(context.Context, Session) (string, error) {
+	return "", ErrPaymentsUnavailable
+}
+func (UnconfiguredProcessor) Capture(context.Context, string) error { return ErrPaymentsUnavailable }
+func (UnconfiguredProcessor) Refund(context.Context, string) error  { return ErrPaymentsUnavailable }
 
 // Authorize returns a placeholder reference.
 func (NoopProcessor) Authorize(_ context.Context, s Session) (string, error) {
@@ -97,7 +106,7 @@ type Service struct {
 // NewService builds the coaching service.
 func NewService(db *pgxpool.Pool, p PaymentProcessor) *Service {
 	if p == nil {
-		p = NoopProcessor{}
+		p = UnconfiguredProcessor{}
 	}
 	return &Service{db: db, payment: p}
 }
@@ -231,6 +240,9 @@ func (s *Service) Availability(ctx context.Context, coachID uuid.UUID) ([]Slot, 
 func (s *Service) Book(ctx context.Context, coachID, studentID uuid.UUID,
 	startsAt time.Time, durationMinutes int, notes string) (*Session, error) {
 
+	if _, disabled := s.payment.(UnconfiguredProcessor); disabled {
+		return nil, ErrPaymentsUnavailable
+	}
 	if coachID == studentID {
 		return nil, errors.New("coaching: you cannot book yourself")
 	}

@@ -107,8 +107,13 @@ class PuzzleRepo extends ChangeNotifier {
     for (final p in list) {
       final encoded = _prefs.getString('$_kAttemptsPrefix${p.id}');
       if (encoded == null) continue;
-      final decoded = json.decode(encoded) as Map<String, dynamic>;
-      loaded[p.id] = PuzzleAttempt.fromJson(p.id, decoded);
+      try {
+        final decoded = json.decode(encoded) as Map<String, dynamic>;
+        loaded[p.id] = PuzzleAttempt.fromJson(p.id, decoded);
+      } on Object {
+        // One damaged preference must not prevent offline puzzles from loading.
+        continue;
+      }
     }
     _attempts = loaded;
   }
@@ -138,19 +143,28 @@ class PuzzleRepo extends ChangeNotifier {
       }
     }
     // Pick a deterministic puzzle by hashing the date.
-    final idx = today.hashCode.abs() % _puzzles.length;
+    final date = now ?? DateTime.now();
+    final dayNumber =
+        DateTime.utc(date.year, date.month, date.day).millisecondsSinceEpoch ~/
+            Duration.millisecondsPerDay;
+    final idx = dayNumber % _puzzles.length;
     final picked = _puzzles[idx];
     unawaited(_prefs.setString(_kDailyDate, today));
     unawaited(_prefs.setString(_kDailyId, picked.id));
     return picked;
   }
 
-  StreakInfo streak() {
+  StreakInfo streak({DateTime? now}) {
     final current = _prefs.getInt(_kStreakCurrent) ?? 0;
     final best = _prefs.getInt(_kStreakBest) ?? 0;
     final lastIso = _prefs.getString(_kStreakLastDate);
     final lastDate = lastIso == null ? null : DateTime.tryParse(lastIso);
-    return StreakInfo(current: current, best: best, lastSolvedDate: lastDate);
+    final today = now ?? DateTime.now();
+    final active = lastDate != null &&
+        (_dateKey(lastDate) == _dateKey(today) ||
+            _isYesterday(lastDate, today));
+    return StreakInfo(
+        current: active ? current : 0, best: best, lastSolvedDate: lastDate);
   }
 
   /// Update the daily-puzzle streak. Call after a daily puzzle is solved.
@@ -164,7 +178,7 @@ class PuzzleRepo extends ChangeNotifier {
 
     if (lastDate != null && _dateKey(lastDate) == todayKey) {
       // Already counted today.
-      return streak();
+      return streak(now: today);
     }
     if (lastDate != null && _isYesterday(lastDate, today)) {
       current += 1;
@@ -177,7 +191,7 @@ class PuzzleRepo extends ChangeNotifier {
       await _prefs.setInt(_kStreakBest, current);
     }
     notifyListeners();
-    return streak();
+    return streak(now: today);
   }
 
   static String _dateKey(DateTime d) =>

@@ -30,6 +30,19 @@ func (s *Server) authenticated(next http.HandlerFunc) http.HandlerFunc {
 			writeError(w, http.StatusUnauthorized, "invalid_token", "token subject is malformed")
 			return
 		}
+		if s.anticheat != nil {
+			restrictions, err := s.anticheat.Restrictions(r.Context(), userID)
+			if err != nil {
+				s.fail(w, r, err)
+				return
+			}
+			for _, restriction := range restrictions {
+				if restriction.Kind == "suspend" {
+					writeError(w, http.StatusForbidden, "suspended", "account suspended")
+					return
+				}
+			}
+		}
 		ctx := context.WithValue(r.Context(), ctxKeyUser{}, principal{ID: userID, IsGuest: claims.IsGuest})
 		next(w, r.WithContext(ctx))
 	}

@@ -1,6 +1,9 @@
 package goban
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // Ruleset selects komi, suicide and superko defaults. Mirrors the client's
 // Ruleset enum.
@@ -72,6 +75,28 @@ type Config struct {
 	AllowSuicide bool          `json:"allowSuicide"`
 	Superko      SuperkoMode   `json:"superkoMode"`
 	Scoring      ScoringMethod `json:"scoringMethod"`
+}
+
+func (c Config) Validate() error {
+	if c.BoardSize != 9 && c.BoardSize != 13 && c.BoardSize != 19 {
+		return fmt.Errorf("unsupported board size %d", c.BoardSize)
+	}
+	if _, ok := rulesetDefaults[c.Ruleset]; !ok {
+		return fmt.Errorf("unsupported ruleset %q", c.Ruleset)
+	}
+	if c.Handicap < 0 || c.Handicap > 9 {
+		return fmt.Errorf("handicap must be between 0 and 9")
+	}
+	if math.IsNaN(c.Komi) || math.IsInf(c.Komi, 0) || math.Abs(c.Komi) > 100 {
+		return fmt.Errorf("invalid komi")
+	}
+	if c.Superko != SuperkoNone && c.Superko != SuperkoPositional && c.Superko != SuperkoSituational {
+		return fmt.Errorf("invalid superko mode")
+	}
+	if c.Scoring != AreaScoring && c.Scoring != TerritoryScoring {
+		return fmt.Errorf("invalid scoring method")
+	}
+	return nil
 }
 
 // NewConfig builds a Config with ruleset defaults filled in.
@@ -299,6 +324,7 @@ func (s *State) applyResign() (*State, *Move, error) {
 	next := s.Clone()
 	move := Move{Number: s.MoveNumber + 1, Player: s.ToMove, Kind: Resign}
 	next.Status = StatusResigned
+	next.MoveNumber = move.Number
 	next.LastMove = &move
 	next.History = append(next.History, move)
 	return next, &move, nil

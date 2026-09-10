@@ -1,5 +1,5 @@
 # Multi-stage build; the runtime image carries no toolchain.
-FROM golang:1.24-alpine AS build
+FROM golang:1.25-alpine AS build
 
 WORKDIR /src
 # Copy manifests first so dependency download caches across source changes.
@@ -24,4 +24,4 @@ COPY --from=build /out/worker /usr/local/bin/worker
 USER app
 EXPOSE 8080
 # Overridden to /usr/local/bin/worker for the worker process group.
-ENTRYPOINT ["/usr/local/bin/api"]
+CMD ["/usr/local/bin/api"]

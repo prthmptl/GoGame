@@ -3,19 +3,21 @@
 // It is a deliberate parallel implementation of the Flutter client's
 // lib/src/domain (board.dart, groups.dart, rules.dart, scoring.dart), as D2
 // specifies. The two are kept honest by shared test fixtures in
-// testdata/fixtures.json, which both engines execute.
+// testdata/rules.json, which both engines execute.
 //
 // One intentional divergence: the client hashes positions with a Zobrist
 // table seeded from Dart's math.Random, whose sequence no other language
 // reproduces. Superko is therefore checked with each engine's own internal
 // hash, and anything that crosses the wire uses StateHash (SHA-256 over the
-// board bytes and side to move), which is identical everywhere.
+// board size, side to move and board bytes). The offline client does not yet
+// implement verification of these wire hashes.
 package goban
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"math/rand/v2"
+	"sync"
 )
 
 // Color is a stone colour.
@@ -149,11 +151,11 @@ func (b *Board) Equal(other *Board) bool {
 // zobristTables are lazily built per board size. Unlike the client's table
 // this one is only ever compared against itself, so the seed need not match
 // Dart's — see the package comment.
-var zobristTables = map[int][]uint64{}
+var zobristTables sync.Map
 
 func zobristFor(size int) []uint64 {
-	if t, ok := zobristTables[size]; ok {
-		return t
+	if t, ok := zobristTables.Load(size); ok {
+		return t.([]uint64)
 	}
 	// Fixed seed: the table must be stable across process restarts, or a game
 	// reloaded from Postgres would compute different superko hashes than the
@@ -163,8 +165,8 @@ func zobristFor(size int) []uint64 {
 	for i := range t {
 		t[i] = rng.Uint64()
 	}
-	zobristTables[size] = t
-	return t
+	actual, _ := zobristTables.LoadOrStore(size, t)
+	return actual.([]uint64)
 }
 
 // Zobrist returns the internal position hash used for superko checks.

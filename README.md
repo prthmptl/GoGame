@@ -8,6 +8,10 @@ planned.
 > **Status:** v0.2.0 — local MVP. No online play; everything runs offline on the
 > device.
 
+The Go backend under `backend/` contains online platform services, but the
+Flutter app does not yet connect to them. See [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md)
+for the audit, verified fixes, and remaining release work.
+
 > **History:** This repository started as a native Kotlin / Jetpack Compose
 > Android app. It was migrated to Flutter on 2026-05-07 to enable iOS and
 > desktop from a single codebase. The original Kotlin source is archived at
@@ -102,8 +106,8 @@ tool/
   gen_icon.py                     # regenerate adaptive launcher icons
 ```
 
-The `domain/`, `sgf/`, and `data/` layers contain no Flutter imports, so they
-can run under plain Dart and stay easy to test.
+The rules and SGF code are pure Dart. Persistence uses Flutter plugins and
+needs platform integration checks in addition to serializer tests.
 
 ---
 
@@ -153,16 +157,16 @@ flutter build appbundle --release
 # Output: build/app/outputs/bundle/release/app-release.aab
 ```
 
-The Android `applicationId` is `com.gogame`. For Play uploads, copy the example
+The Android `applicationId` is `app.libertygo.play`. For Play uploads, copy the example
 keystore config and fill in your details:
 
 ```sh
 cp android/key.properties.example android/key.properties
 ```
 
-`android/key.properties` and `*.jks` files are gitignored. If `key.properties`
-is present, Gradle signs release builds with that upload key; otherwise local
-release builds fall back to debug signing for smoke testing.
+`android/key.properties` and `*.jks` files are gitignored. Release packaging
+requires a complete signing configuration and the upload keystore. Use
+`flutter build apk --debug` for a smoke build without release credentials.
 
 ### iOS
 

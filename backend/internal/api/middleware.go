@@ -6,7 +6,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,11 +26,12 @@ type statusRecorder struct {
 	wrote  bool
 }
 
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 func (r *statusRecorder) WriteHeader(code int) {
-	if !r.wrote {
-		r.status = code
-		r.wrote = true
+	if r.wrote {
+		return
 	}
+	r.status, r.wrote = code, true
 	r.ResponseWriter.WriteHeader(code)
 }
 
@@ -46,6 +49,14 @@ func (r *statusRecorder) Write(b []byte) (int, error) {
 func withObservability(lg *slog.Logger, route string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		deadline := start.Add(15 * time.Second)
+		_ = http.NewResponseController(w).SetReadDeadline(deadline)
+		_ = http.NewResponseController(w).SetWriteDeadline(deadline)
+		defer http.NewResponseController(w).SetReadDeadline(time.Time{})
+		defer http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		requestCtx, cancel := context.WithDeadline(r.Context(), deadline)
+		defer cancel()
+		r = r.WithContext(requestCtx)
 		reqID := r.Header.Get("X-Request-Id")
 		if reqID == "" {
 			reqID = uuid.NewString()
@@ -78,33 +89,58 @@ func withObservability(lg *slog.Logger, route string, next http.HandlerFunc) htt
 	}
 }
 
-// clientIP prefers the left-most X-Forwarded-For entry, which is what Fly.io
-// and Cloudflare set, and falls back to the socket address.
+// Forwarded addresses are trusted only when the immediate peer is in an
+// explicitly configured proxy network. Walk right-to-left to ignore spoofed
+// addresses prepended by a caller.
 func clientIP(r *http.Request) string {
-	if fwd := r.Header.Get("Fly-Client-IP"); fwd != "" {
-		return fwd
-	}
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		for i := 0; i < len(fwd); i++ {
-			if fwd[i] == ',' {
-				return trimSpace(fwd[:i])
-			}
-		}
-		return trimSpace(fwd)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	var trusted []*net.IPNet
+	for _, raw := range strings.Split(os.Getenv("TRUSTED_PROXY_CIDRS"), ",") {
+		_, network, err := net.ParseCIDR(strings.TrimSpace(raw))
+		if err == nil {
+			trusted = append(trusted, network)
+		}
+	}
+	isTrusted := func(ip net.IP) bool {
+		for _, network := range trusted {
+			if network.Contains(ip) {
+				return true
+			}
+		}
+		return false
+	}
+	chain := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(chain) - 1; i >= 0 && isTrusted(ip); i-- {
+		next := net.ParseIP(strings.TrimSpace(chain[i]))
+		if next == nil {
+			break
+		}
+		ip = next
+	}
+	if ip != nil {
+		return ip.String()
 	}
 	return host
 }
 
-func trimSpace(s string) string {
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {
-		s = s[1:]
+func (s *Server) limitAuth(limit int, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := "auth:rate:" + r.URL.Path + ":" + clientIP(r)
+		n, err := s.store.Redis.Eval(r.Context(), `local n = redis.call("INCR", KEYS[1])
+            if n == 1 then redis.call("EXPIRE", KEYS[1], 60) end return n`, []string{key}).Int()
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, "unavailable", "authentication temporarily unavailable")
+			return
+		}
+		if n > limit {
+			w.Header().Set("Retry-After", "60")
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests")
+			return
+		}
+		next(w, r)
 	}
-	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t') {
-		s = s[:len(s)-1]
-	}
-	return s
 }

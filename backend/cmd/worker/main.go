@@ -1,8 +1,7 @@
 // Command worker runs scheduled background jobs.
 //
-// C1 requires the worker process to exist in the skeleton. Today it runs one
-// job: pruning refresh tokens that are expired or long revoked. Later phases
-// add the D3 clock-timeout watcher and the D4 matchmaking pairing loop here.
+// Delivery and maintenance run here. Live clocks, recovery and matchmaking
+// run in the API process alongside the game hub.
 package main
 
 import (
@@ -18,7 +17,6 @@ import (
 	"github.com/prathpatel/gogame-backend/internal/config"
 	"github.com/prathpatel/gogame-backend/internal/correspondence"
 	"github.com/prathpatel/gogame-backend/internal/logging"
-	"github.com/prathpatel/gogame-backend/internal/matchmaking"
 	"github.com/prathpatel/gogame-backend/internal/notify"
 	"github.com/prathpatel/gogame-backend/internal/profile"
 	"github.com/prathpatel/gogame-backend/internal/rating"
@@ -51,8 +49,11 @@ func run() error {
 	}
 	defer st.Close()
 
+	if err := st.Migrate(ctx); err != nil {
+		return fmt.Errorf("migrate: %w", err)
+	}
 	profiles := profile.NewService(st.DB)
-	var sender notify.Sender = notify.NoopSender{}
+	var sender notify.Sender
 	if fcm := notify.NewFCMFromEnv(); fcm != nil {
 		sender = fcm
 		lg.Info("push notifications enabled", "project", fcm.ProjectID)
@@ -69,11 +70,6 @@ func run() error {
 	defer leaderboard.Stop()
 	pushes := time.NewTicker(10 * time.Second)
 	defer pushes.Stop()
-	// D4 specifies a pairing sweep every 2 seconds.
-	pairing := time.NewTicker(2 * time.Second)
-	defer pairing.Stop()
-
-	matcher := matchmaking.NewService(st.Redis)
 	roomSvc := rooms.NewService(st.DB)
 	ratingSvc := rating.NewService(st.DB)
 	corrSvc := correspondence.NewService(st.DB)
@@ -103,8 +99,6 @@ func run() error {
 			refreshLeaderboard(ctx, profiles, lg)
 		case <-pushes.C:
 			deliverNotifications(ctx, notifier, lg)
-		case <-pairing.C:
-			pairWaitingPlayers(ctx, matcher, lg)
 		case <-daily.C:
 			expireCorrespondence(ctx, corrSvc, st, lg)
 			drainVacations(ctx, corrSvc, lg)
@@ -122,26 +116,6 @@ func refreshLeaderboard(ctx context.Context, p *profile.Service, lg *slog.Logger
 		return
 	}
 	lg.Info("leaderboard refreshed", "durationMs", time.Since(start).Milliseconds())
-}
-
-// pairWaitingPlayers runs one D4 pairing sweep.
-//
-// The worker does not hold game sessions, so pairing here creates the game
-// row via the API's hub through Redis; when no Pair function is configured
-// (worker-only deployments) the sweep is a no-op and the API instances pair
-// instead.
-func pairWaitingPlayers(ctx context.Context, m *matchmaking.Service, lg *slog.Logger) {
-	if m.Pair == nil {
-		return
-	}
-	paired, err := m.PairOnce(ctx)
-	if err != nil {
-		lg.Error("matchmaking sweep failed", "error", err)
-		return
-	}
-	if paired > 0 {
-		lg.Info("players paired", "games", paired)
-	}
 }
 
 // sweepRooms closes D5 rooms nobody used.

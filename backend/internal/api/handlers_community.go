@@ -510,6 +510,8 @@ func (s *Server) handleBookCoach(w http.ResponseWriter, r *http.Request) {
 		req.StartsAt, req.DurationMinutes, req.Notes)
 	if err != nil {
 		switch {
+		case errors.Is(err, coaching.ErrPaymentsUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "payments_unconfigured", "coaching payments are not configured")
 		case errors.Is(err, coaching.ErrSlotTaken):
 			writeError(w, http.StatusConflict, "slot_taken", "that slot is already booked")
 		case errors.Is(err, coaching.ErrUnavailable):

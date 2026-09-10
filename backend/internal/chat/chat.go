@@ -89,13 +89,11 @@ func (s *Service) Post(ctx context.Context, gameID, userID uuid.UUID, body strin
 // on first use is cheap and needs no stored timestamps.
 func (s *Service) allow(ctx context.Context, userID uuid.UUID) (bool, error) {
 	key := "chat:rate:" + userID.String()
-	n, err := s.rdb.Incr(ctx, key).Result()
+	n, err := s.rdb.Eval(ctx, `local n = redis.call("INCR", KEYS[1])
+        if n == 1 then redis.call("PEXPIRE", KEYS[1], ARGV[1]) end return n`,
+		[]string{key}, rateWindow.Milliseconds()).Int64()
 	if err != nil {
-		// Never let a Redis outage silence chat entirely.
-		return true, nil
-	}
-	if n == 1 {
-		s.rdb.Expire(ctx, key, rateWindow)
+		return false, err
 	}
 	return n <= rateMaxInWindow, nil
 }

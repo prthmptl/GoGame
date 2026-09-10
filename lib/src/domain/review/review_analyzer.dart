@@ -78,14 +78,24 @@ class ReviewAnalyzer {
   ///
   /// The work is split across microtasks so the UI can stay responsive while
   /// long games (200+ moves) are analyzed.
-  Future<ReviewReport> analyze(GameState game) async {
+  Future<ReviewReport> analyze(GameState game,
+      {GameState? initialState}) async {
     final ai = _buildAi();
     final moves = <MoveAnalysis>[];
-    var state = GameState.newGame(game.config);
+    var state = initialState ?? GameState.newGame(game.config);
     var blunders = 0;
     var mistakes = 0;
     var inaccuracies = 0;
     for (final move in game.history) {
+      if (state.status == GameStatus.scoring) {
+        state = state.copyWith(status: GameStatus.active, consecutivePasses: 0);
+      }
+      if (move.type == MoveType.resign) {
+        state = state.copyWith(currentPlayer: move.player);
+      }
+      if (state.currentPlayer != move.player) {
+        throw const FormatException('Wrong player in review');
+      }
       final res = Rules.apply(
         state,
         switch (move.type) {
@@ -94,7 +104,9 @@ class ReviewAnalyzer {
           MoveType.placeStone => MoveIntent.place(move.point!),
         },
       );
-      if (!res.isAccepted) break;
+      if (!res.isAccepted) {
+        throw const FormatException('Illegal move in review');
+      }
       final after = res.newStateAs<GameState>();
 
       MoveQuality quality = MoveQuality.notApplicable;
@@ -110,7 +122,8 @@ class ReviewAnalyzer {
             final altState = altApply.newStateAs<GameState>();
             final altScore = AiHeuristics.evaluate(altState, move.player);
             pointsLost = (altScore - actualScore).clamp(0, 1 << 30).toInt();
-            quality = _classify(pointsLost, sameAsAi: recommended == move.point);
+            quality =
+                _classify(pointsLost, sameAsAi: recommended == move.point);
             if (quality == MoveQuality.best) recommended = null;
           } else {
             quality = MoveQuality.good;
@@ -176,8 +189,7 @@ class ReviewAnalyzer {
   static String _coord(Point p, int size) {
     const skipI = 8; // 'I' is skipped in Go coordinates
     final col = p.col;
-    final letter = String.fromCharCode(
-        0x41 + (col < skipI ? col : col + 1));
+    final letter = String.fromCharCode(0x41 + (col < skipI ? col : col + 1));
     final row = size - p.row;
     return '$letter$row';
   }

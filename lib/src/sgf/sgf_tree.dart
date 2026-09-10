@@ -36,23 +36,34 @@ class SgfTreeParseException implements Exception {
 
 class SgfTreeParser {
   static SgfTreeNode parse(String input) {
+    if (input.length > 2 * 1024 * 1024) {
+      throw SgfTreeParseException('SGF exceeds 2 MB', 0);
+    }
     final parser = SgfTreeParser._(input);
     parser._skipWhitespace();
     if (parser._peek() != '(') {
       throw SgfTreeParseException('expected "("', parser._pos);
     }
     final root = parser._parseSequence();
+    parser._skipWhitespace();
+    if (parser._pos != input.length) {
+      throw SgfTreeParseException('Unexpected trailing data', parser._pos);
+    }
     return root;
   }
 
   final String _src;
   int _pos = 0;
+  int _depth = 0;
 
   SgfTreeParser._(this._src);
 
   /// Parse `( ;n1 ;n2 ... (sub) (sub) )` returning the head node with the
   /// trailing nodes chained as the first child each.
   SgfTreeNode _parseSequence() {
+    if (++_depth > 128) {
+      throw SgfTreeParseException('SGF variations nested too deeply', _pos);
+    }
     _expect('(');
     final nodes = <SgfTreeNode>[];
     final variations = <SgfTreeNode>[];
@@ -74,10 +85,9 @@ class SgfTreeParser {
         throw SgfTreeParseException('unexpected character "$ch"', _pos);
       }
     }
+    _depth--;
     // Stitch: nodes[0] → nodes[1] → … → nodes[n].children = variations
-    if (nodes.isEmpty) {
-      return SgfTreeNode(children: variations);
-    }
+    if (nodes.isEmpty) throw SgfTreeParseException('Empty SGF game tree', _pos);
     for (var i = 0; i < nodes.length - 1; i++) {
       nodes[i].children.add(nodes[i + 1]);
     }
@@ -94,8 +104,7 @@ class SgfTreeParser {
       if (ch == ';' || ch == '(' || ch == ')') break;
       final key = _parseIdent();
       if (key.isEmpty) {
-        throw SgfTreeParseException(
-            'expected property identifier', _pos);
+        throw SgfTreeParseException('expected property identifier', _pos);
       }
       final values = <String>[];
       _skipWhitespace();
@@ -103,9 +112,10 @@ class SgfTreeParser {
         values.add(_parseValue());
         _skipWhitespace();
       }
-      node.properties
-          .putIfAbsent(key, () => <String>[])
-          .addAll(values);
+      if (values.isEmpty) {
+        throw SgfTreeParseException('Missing property value', _pos);
+      }
+      node.properties.putIfAbsent(key, () => <String>[]).addAll(values);
     }
     return node;
   }
@@ -132,8 +142,9 @@ class SgfTreeParser {
       if (c == '\\' && _pos + 1 < _src.length) {
         // SGF escapes: backslash + char keeps the char (with newline removed).
         final next = _src[_pos + 1];
-        if (next != '\n') buf.write(next);
+        if (next != '\n' && next != '\r') buf.write(next);
         _pos += 2;
+        if (next == '\r' && _peek() == '\n') _pos++;
         continue;
       }
       if (c == ']') {

@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import '../domain/clock/clock_controller.dart';
 import '../domain/clock/time_control.dart';
 import '../domain/game_state.dart';
 import '../domain/models.dart';
@@ -5,6 +8,7 @@ import '../domain/rules.dart';
 import '../domain/scoring.dart';
 
 class SavedGameEntity {
+  final String runtimeJson;
   final String id;
   final int createdAtMillis;
   final int updatedAtMillis;
@@ -34,6 +38,7 @@ class SavedGameEntity {
   final int timeStonesPerPeriod;
 
   const SavedGameEntity({
+    this.runtimeJson = '{}',
     required this.id,
     required this.createdAtMillis,
     required this.updatedAtMillis,
@@ -62,6 +67,7 @@ class SavedGameEntity {
   });
 
   Map<String, Object?> toRow() => {
+        'runtimeJson': runtimeJson,
         'id': id,
         'createdAtMillis': createdAtMillis,
         'updatedAtMillis': updatedAtMillis,
@@ -89,7 +95,34 @@ class SavedGameEntity {
         'timeStonesPerPeriod': timeStonesPerPeriod,
       };
 
+  Map<String, dynamic> get runtime =>
+      jsonDecode(runtimeJson) as Map<String, dynamic>;
+
+  ClockSnapshot? clockFor(String color) {
+    final value = runtime[color];
+    return value == null
+        ? null
+        : ClockSnapshot.fromJson(value as Map<String, dynamic>);
+  }
+
+  Set<Point> get deadStones =>
+      ((runtime['deadStones'] as List<dynamic>?) ?? []).map((p) {
+        final pair = p as List<dynamic>;
+        if (pair.length != 2) {
+          throw const FormatException('Invalid saved dead stone');
+        }
+        final point = Point(pair[0] as int, pair[1] as int);
+        if (point.row < 0 ||
+            point.row >= boardSize ||
+            point.col < 0 ||
+            point.col >= boardSize) {
+          throw const FormatException('Invalid saved dead stone');
+        }
+        return point;
+      }).toSet();
+
   static SavedGameEntity fromRow(Map<String, Object?> r) => SavedGameEntity(
+        runtimeJson: r['runtimeJson'] as String? ?? '{}',
         id: r['id']! as String,
         createdAtMillis: (r['createdAtMillis']! as num).toInt(),
         updatedAtMillis: (r['updatedAtMillis']! as num).toInt(),
@@ -111,18 +144,15 @@ class SavedGameEntity {
         aiDifficulty: r['aiDifficulty'] as String? ?? 'beginner',
         timeControlKind: r['timeControlKind'] as String? ?? 'absolute',
         timeMainSeconds: (r['timeMainSeconds'] as num?)?.toInt() ?? 600,
-        timeIncrementSeconds:
-            (r['timeIncrementSeconds'] as num?)?.toInt() ?? 0,
+        timeIncrementSeconds: (r['timeIncrementSeconds'] as num?)?.toInt() ?? 0,
         timePeriodSeconds: (r['timePeriodSeconds'] as num?)?.toInt() ?? 0,
         timePeriods: (r['timePeriods'] as num?)?.toInt() ?? 0,
-        timeStonesPerPeriod:
-            (r['timeStonesPerPeriod'] as num?)?.toInt() ?? 0,
+        timeStonesPerPeriod: (r['timeStonesPerPeriod'] as num?)?.toInt() ?? 0,
       );
 }
 
 class GameSerializer {
-  static const _defaultTimeControl =
-      TimeControl.absolute(mainSeconds: 10 * 60);
+  static const _defaultTimeControl = TimeControl.absolute(mainSeconds: 10 * 60);
 
   static String _statusName(GameStatus s) => switch (s) {
         GameStatus.active => 'ACTIVE',
@@ -166,12 +196,22 @@ class GameSerializer {
         intent =
             MoveIntent.place(Point(int.parse(parts[1]), int.parse(parts[2])));
       }
-      if (intent == null) continue;
+      if (intent == null || (parts[0] != 'B' && parts[0] != 'W')) {
+        throw const FormatException('Invalid saved move');
+      }
+      if (s.status == GameStatus.scoring) {
+        s = s.copyWith(status: GameStatus.active, consecutivePasses: 0);
+      }
+      final player = parts[0] == 'B' ? StoneColor.black : StoneColor.white;
+      if (intent.type == MoveType.resign) s = s.copyWith(currentPlayer: player);
+      if (player != s.currentPlayer) {
+        throw const FormatException('Wrong player in saved game');
+      }
       final res = Rules.apply(s, intent);
       if (res.isAccepted) {
         s = res.newStateAs<GameState>();
       } else {
-        return s;
+        throw FormatException('Illegal saved move: ${res.reason}');
       }
     }
     return s;
@@ -191,6 +231,9 @@ class GameSerializer {
     String? botName,
     String? botStyle,
     AiDifficulty aiDifficulty = AiDifficulty.beginner,
+    ClockSnapshot? blackClock,
+    ClockSnapshot? whiteClock,
+    Set<Point> deadStones = const {},
   }) =>
       _toEntity(
         id: id,
@@ -206,6 +249,9 @@ class GameSerializer {
         botName: botName,
         botStyle: botStyle,
         aiDifficulty: aiDifficulty,
+        blackClock: blackClock,
+        whiteClock: whiteClock,
+        deadStones: deadStones,
       );
 
   static SavedGameEntity _toEntity({
@@ -222,8 +268,19 @@ class GameSerializer {
     required String? botName,
     required String? botStyle,
     required AiDifficulty aiDifficulty,
+    required ClockSnapshot? blackClock,
+    required ClockSnapshot? whiteClock,
+    required Set<Point> deadStones,
   }) =>
       SavedGameEntity(
+        runtimeJson: jsonEncode({
+          'allowSuicide': state.config.allowSuicide,
+          'superkoMode': state.config.superkoMode.name,
+          'consecutivePasses': state.consecutivePasses,
+          if (blackClock != null) 'black': blackClock.toJson(),
+          if (whiteClock != null) 'white': whiteClock.toJson(),
+          'deadStones': deadStones.map((p) => [p.row, p.col]).toList(),
+        }),
         id: id,
         createdAtMillis: createdAt,
         updatedAtMillis: updatedAt,
@@ -252,6 +309,13 @@ class GameSerializer {
       );
 
   static GameState fromEntity(SavedGameEntity e) {
+    if (e.boardSize < 2 ||
+        e.boardSize > 25 ||
+        !e.komi.isFinite ||
+        e.handicap < 0 ||
+        e.handicap > 9) {
+      throw const FormatException('Invalid saved game configuration');
+    }
     final ruleset = _rulesetFrom(e.ruleset);
     final defaults = RulesetDefaults.of(ruleset);
     final cfg = GameConfig(
@@ -259,15 +323,20 @@ class GameSerializer {
       ruleset: ruleset,
       komi: e.komi,
       handicap: e.handicap,
-      allowSuicide: defaults.allowSuicide,
-      superkoMode: defaults.superkoMode,
+      allowSuicide: e.runtime['allowSuicide'] as bool? ?? defaults.allowSuicide,
+      superkoMode: SuperkoMode.values.firstWhere(
+          (mode) => mode.name == e.runtime['superkoMode'],
+          orElse: () => defaults.superkoMode),
       variant: _gameVariantFrom(e.gameVariant),
     );
     var s = decode(cfg, e.movesEncoded);
-    if (s.status == GameStatus.active &&
-        _statusFrom(e.status) == GameStatus.scoring) {
-      s = s.copyWith(status: GameStatus.scoring);
-    }
+    final status = _statusFrom(e.status);
+    s = s.copyWith(
+        status: status,
+        consecutivePasses: e.runtime['consecutivePasses'] as int? ??
+            (status == GameStatus.active && s.status == GameStatus.scoring
+                ? 0
+                : s.consecutivePasses));
     return s;
   }
 

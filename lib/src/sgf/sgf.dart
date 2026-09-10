@@ -70,9 +70,13 @@ class Sgf {
     return '$col$row';
   }
 
+  static String _escape(String value) =>
+      value.replaceAll('\\', '\\\\').replaceAll(']', '\\]');
+
   static String export(
     GameState state, {
     ScoreResult? score,
+    String? result,
     String blackName = 'Black',
     String whiteName = 'White',
     DateTime? date,
@@ -100,20 +104,26 @@ class Sgf {
       ..write(']');
     sb
       ..write('PB[')
-      ..write(blackName)
+      ..write(_escape(blackName))
       ..write(']');
     sb
       ..write('PW[')
-      ..write(whiteName)
+      ..write(_escape(whiteName))
       ..write(']');
     sb
       ..write('DT[')
       ..write(dStr)
       ..write(']');
-    if (score != null) {
+    result = result?.isNotEmpty == true ? result : score?.resultString;
+    if (result == null &&
+        state.status == GameStatus.resigned &&
+        state.history.isNotEmpty) {
+      result = '${state.history.last.player.other.short}+R';
+    }
+    if (result != null) {
       sb
         ..write('RE[')
-        ..write(score.resultString)
+        ..write(_escape(result))
         ..write(']');
     }
     // Human-readable game comment summarizing the ruleset. Most SGF viewers
@@ -121,9 +131,22 @@ class Sgf {
     // at-a-glance without inspecting the raw properties.
     sb
       ..write('GC[')
-      ..write(_sgfComment(state.config))
+      ..write(_escape(_sgfComment(state.config)))
       ..write(']');
 
+    if (state.config.handicap > 0) {
+      final initial = GameState.newGame(state.config).board;
+      sb.write('AB');
+      for (var row = 0; row < initial.size; row++) {
+        for (var col = 0; col < initial.size; col++) {
+          final point = Point(row, col);
+          if (initial.cellAt(point) == CellState.black) {
+            sb.write('[${_coord(point)}]');
+          }
+        }
+      }
+      sb.write('PL[W]');
+    }
     for (final m in state.history) {
       final tag = m.player == StoneColor.black ? 'B' : 'W';
       switch (m.type) {

@@ -72,6 +72,7 @@ class Rules {
     );
     final next = state.copyWith(
       status: GameStatus.resigned,
+      moveNumber: move.moveNumber,
       lastMove: move,
       history: [...state.history, move],
     );
@@ -119,8 +120,8 @@ class Rules {
         return MoveResult.rejected(MoveRejection.suicide);
       }
       selfCaptured = ownGroup.stones.toSet();
-      afterMove = afterCapture.setMany(
-          selfCaptured.map((p) => MapEntry(p, CellState.empty)));
+      afterMove = afterCapture
+          .setMany(selfCaptured.map((p) => MapEntry(p, CellState.empty)));
     }
 
     // Ko / superko: dispatch on configured mode.
@@ -157,10 +158,9 @@ class Rules {
         (player == StoneColor.white ? captured.length : 0) +
         (player == StoneColor.black ? selfCaptured.length : 0);
 
-    final atariGoEnded = state.config.variant == GameVariant.atariGo &&
-        captured.isNotEmpty;
-    final nextStatus =
-        atariGoEnded ? GameStatus.completed : state.status;
+    final atariGoEnded =
+        state.config.variant == GameVariant.atariGo && captured.isNotEmpty;
+    final nextStatus = atariGoEnded ? GameStatus.completed : state.status;
 
     final next = state.copyWith(
       board: afterMove,

@@ -1,4 +1,5 @@
 import '../../sgf/sgf_tree.dart';
+import '../../sgf/sgf_import.dart';
 import '../game_state.dart';
 import '../models.dart';
 import '../rules.dart';
@@ -61,12 +62,14 @@ class VariationNode {
 class VariationTree {
   final VariationConfig config;
   final VariationNode root;
+  final GameState? initialState;
 
   int _nextId;
 
   VariationTree({
     required this.config,
     required this.root,
+    this.initialState,
     required int nextId,
   }) : _nextId = nextId;
 
@@ -79,7 +82,7 @@ class VariationTree {
   GameState? buildStateTo(VariationNode target) {
     final path = pathTo(target);
     if (path == null) return null;
-    var state = GameState.newGame(config.toGameConfig());
+    var state = initialState ?? GameState.newGame(config.toGameConfig());
     for (final node in path) {
       final move = node.move;
       if (move == null) continue;
@@ -89,6 +92,9 @@ class VariationTree {
         MoveType.resign => const MoveIntent.resign(),
         MoveType.placeStone => MoveIntent.place(move.point!),
       };
+      if (state.status == GameStatus.scoring) {
+        state = state.copyWith(status: GameStatus.active, consecutivePasses: 0);
+      }
       final r = Rules.apply(state, intent);
       if (!r.isAccepted) return null;
       state = r.newStateAs<GameState>();
@@ -103,8 +109,8 @@ class VariationTree {
     return null;
   }
 
-  bool _walk(VariationNode current, VariationNode target,
-      List<VariationNode> path) {
+  bool _walk(
+      VariationNode current, VariationNode target, List<VariationNode> path) {
     path.add(current);
     if (identical(current, target)) return true;
     for (final c in current.children) {
@@ -132,7 +138,7 @@ class VariationTree {
 
   static bool _movesMatch(Move? a, Move b) {
     if (a == null) return false;
-    if (a.type != b.type) return false;
+    if (a.type != b.type || a.player != b.player) return false;
     if (a.type != MoveType.placeStone) return true;
     return a.point == b.point;
   }
@@ -157,118 +163,49 @@ class VariationTreeBuilder {
       parent.children.add(node);
       parent = node;
     }
-    return VariationTree(config: config, root: root, nextId: idCounter);
+    return VariationTree(
+        config: config,
+        root: root,
+        nextId: idCounter,
+        initialState: GameState.newGame(game.config));
   }
 
   static VariationTree build(SgfTreeNode root) {
-    final config = _parseConfig(root);
+    final initialState = SgfImport.initialState(root);
+    final cfg = initialState.config;
+    final config = VariationConfig(
+        boardSize: cfg.boardSize,
+        ruleset: cfg.ruleset,
+        komi: cfg.komi,
+        handicap: cfg.handicap);
     var idCounter = 0;
-    final rootNode = VariationNode(id: idCounter++);
-    // The SGF root contains header properties; its first child is the first
-    // "real" node. Replay through the rules engine so that captures and move
-    // numbers are attached correctly.
-    final initialState = GameState.newGame(config.toGameConfig());
-    _appendChildren(root.children, rootNode, initialState, () => idCounter++);
-    return VariationTree(config: config, root: rootNode, nextId: idCounter);
-  }
-
-  static VariationConfig _parseConfig(SgfTreeNode root) {
-    final size = int.tryParse(root.prop('SZ') ?? '') ?? 19;
-    final komi = double.tryParse(root.prop('KM') ?? '') ?? 7.5;
-    final handicap = int.tryParse(root.prop('HA') ?? '') ?? 0;
-    final ruRaw = root.prop('RU');
-    final ruleset = _parseRuleset(ruRaw);
-    return VariationConfig(
-      boardSize: size,
-      ruleset: ruleset,
-      komi: komi,
-      handicap: handicap,
-    );
-  }
-
-  static Ruleset _parseRuleset(String? raw) {
-    if (raw == null) return Ruleset.chinese;
-    final low = raw.toLowerCase();
-    if (low.contains('japanese')) return Ruleset.japanese;
-    if (low.contains('korean')) return Ruleset.korean;
-    if (low.contains('aga')) return Ruleset.aga;
-    if (low.contains('ing')) return Ruleset.ing;
-    if (low.contains('new zealand') || low == 'nz') return Ruleset.newZealand;
-    if (low.contains('tromp')) return Ruleset.trompTaylor;
-    return Ruleset.chinese;
+    final rootNode = VariationNode(id: idCounter++, comment: root.prop('C'));
+    _appendChildren([root], rootNode, initialState, () => idCounter++,
+        allowSetup: true);
+    return VariationTree(
+        config: config,
+        root: rootNode,
+        nextId: idCounter,
+        initialState: initialState);
   }
 
   static void _appendChildren(
     List<SgfTreeNode> sgfChildren,
     VariationNode parent,
     GameState state,
-    int Function() allocateId,
-  ) {
+    int Function() allocateId, {
+    bool allowSetup = false,
+  }) {
     for (final sgf in sgfChildren) {
-      final move = _parseMove(sgf, state);
-      if (move == null) continue;
-      if (move.player != state.currentPlayer) continue;
-      final res = Rules.apply(
-        state,
-        switch (move.type) {
-          MoveType.pass => const MoveIntent.pass(),
-          MoveType.resign => const MoveIntent.resign(),
-          MoveType.placeStone => MoveIntent.place(move.point!),
-        },
-      );
-      if (!res.isAccepted) continue;
-      final nextState = res.newStateAs<GameState>();
-      // Use the move object the rules engine produced — that one carries the
-      // correct move number + captured list.
+      final nextState = SgfImport.applyNode(state, sgf, allowSetup: allowSetup);
+      if (identical(nextState, state)) {
+        _appendChildren(sgf.children, parent, state, allocateId);
+        continue;
+      }
       final node = VariationNode(
-        id: allocateId(),
-        move: res.move,
-        comment: sgf.prop('C'),
-      );
+          id: allocateId(), move: nextState.lastMove, comment: sgf.prop('C'));
       parent.children.add(node);
       _appendChildren(sgf.children, node, nextState, allocateId);
     }
-  }
-
-  static Move? _parseMove(SgfTreeNode sgf, GameState state) {
-    final boardSize = state.board.size;
-    final bRaw = sgf.prop('B');
-    final wRaw = sgf.prop('W');
-    String? raw;
-    StoneColor player;
-    if (bRaw != null) {
-      raw = bRaw;
-      player = StoneColor.black;
-    } else if (wRaw != null) {
-      raw = wRaw;
-      player = StoneColor.white;
-    } else {
-      return null;
-    }
-    final isPass = raw.isEmpty || raw == 'tt';
-    final point = isPass ? null : _parsePoint(raw, boardSize);
-    if (!isPass && point == null) return null;
-    return Move(
-      moveNumber: state.moveNumber + 1,
-      player: player,
-      type: isPass ? MoveType.pass : MoveType.placeStone,
-      point: point,
-      captured: const [],
-    );
-  }
-
-  static Point? _parsePoint(String raw, int boardSize) {
-    if (raw.length < 2) return null;
-    final col = _decodeCoord(raw.codeUnitAt(0));
-    final row = _decodeCoord(raw.codeUnitAt(1));
-    if (col < 0 || col >= boardSize) return null;
-    if (row < 0 || row >= boardSize) return null;
-    return Point(row, col);
-  }
-
-  static int _decodeCoord(int code) {
-    if (code >= 0x61 && code <= 0x7A) return code - 0x61;
-    if (code >= 0x41 && code <= 0x5A) return code - 0x41;
-    return -1;
   }
 }

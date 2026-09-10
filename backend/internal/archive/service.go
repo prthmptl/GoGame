@@ -103,8 +103,17 @@ func (s *Service) Get(ctx context.Context, gameID, viewerID uuid.UUID) (*Game, e
 		return nil, err
 	}
 	if g.Status == "active" && !participates(g, viewerID) {
-		// Do not leak the existence of someone else's in-progress game.
-		return nil, ErrNotFound
+		// A private room code grants its members spectator access. Guessing
+		// a game id alone never grants access to a live private game.
+		var member bool
+		if err := s.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM rooms r
+            JOIN room_members m ON m.room_id=r.id WHERE r.game_id=$1 AND m.user_id=$2)`,
+			gameID, viewerID).Scan(&member); err != nil {
+			return nil, err
+		}
+		if !member {
+			return nil, ErrNotFound
+		}
 	}
 	return g, nil
 }
@@ -252,7 +261,13 @@ func (s *Service) SGF(ctx context.Context, gameID, viewerID uuid.UUID) ([]byte, 
 		}
 		// Fall through and regenerate: a missing object should not 500.
 	}
-	return s.GenerateSGF(ctx, g)
+	body, err := s.GenerateSGF(ctx, g)
+	if len(body) > 0 {
+		// Reads can serve a regenerated body during a storage outage. Completion
+		// jobs call GenerateSGF directly and must retry the failed upload.
+		return body, nil
+	}
+	return body, err
 }
 
 // GenerateSGF replays game_moves and renders SGF, then stores it.
@@ -266,6 +281,22 @@ func (s *Service) GenerateSGF(ctx context.Context, g *Game) ([]byte, error) {
 	state := goban.NewGame(cfg)
 
 	for _, m := range moves {
+		if state.Status == goban.StatusScoring {
+			state.Status = goban.StatusActive
+			state.ConsecutivePasses = 0
+		}
+		player := goban.Black
+		if m.Player == "white" {
+			player = goban.White
+		} else if m.Player != "black" {
+			return nil, fmt.Errorf("move %d has invalid player", m.MoveNumber)
+		}
+		if m.Kind == "resign" {
+			state.ToMove = player
+		}
+		if player != state.ToMove || m.MoveNumber != state.MoveNumber+1 {
+			return nil, fmt.Errorf("move %d has invalid order", m.MoveNumber)
+		}
 		var intent goban.Intent
 		switch m.Kind {
 		case "place":
@@ -277,6 +308,8 @@ func (s *Service) GenerateSGF(ctx context.Context, g *Game) ([]byte, error) {
 			intent = goban.PassIntent()
 		case "resign":
 			intent = goban.ResignIntent()
+		default:
+			return nil, fmt.Errorf("move %d has invalid kind", m.MoveNumber)
 		}
 		next, _, err := state.Apply(intent)
 		if err != nil {
@@ -299,11 +332,10 @@ func (s *Service) GenerateSGF(ctx context.Context, g *Game) ([]byte, error) {
 
 	key := blob.GameKey(g.ID.String())
 	if err := s.blob.Put(ctx, key, body, "application/x-go-sgf"); err != nil {
-		// Storage failure must not fail the read; the caller still gets SGF.
-		return body, nil
+		return body, fmt.Errorf("store sgf: %w", err)
 	}
-	_, _ = s.db.Exec(ctx, `UPDATE games SET sgf_object_key = $2 WHERE id = $1`, g.ID, key)
-	return body, nil
+	_, err = s.db.Exec(ctx, `UPDATE games SET sgf_object_key = $2 WHERE id = $1`, g.ID, key)
+	return body, err
 }
 
 // SGFURL returns a time-limited direct download URL when the SGF is stored.

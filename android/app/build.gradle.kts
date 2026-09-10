@@ -47,11 +47,7 @@ android {
 
     buildTypes {
         getByName("release") {
-            signingConfig = if (keystorePropertiesFile.exists()) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
         }
@@ -63,3 +59,21 @@ flutter {
 }
 
 dependencies {}
+
+// A release package must never silently use a debug key or remain unsigned.
+gradle.taskGraph.whenReady {
+    val packagingRelease = allTasks.any {
+        it.project.path == ":app" &&
+            (it.name.startsWith("assemble") || it.name.startsWith("bundle")) &&
+            it.name.endsWith("Release")
+    }
+    if (packagingRelease) {
+        val required = listOf("storeFile", "storePassword", "keyAlias", "keyPassword")
+        if (required.any { keystoreProperties.getProperty(it).isNullOrBlank() }) {
+            throw GradleException("Release signing requires android/key.properties with storeFile, storePassword, keyAlias and keyPassword.")
+        }
+        if (!file(keystoreProperties.getProperty("storeFile")).isFile) {
+            throw GradleException("The release keystore specified in android/key.properties does not exist.")
+        }
+    }
+}

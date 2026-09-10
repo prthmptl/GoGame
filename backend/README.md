@@ -1,6 +1,9 @@
 # GoGame Backend
 
-Implements Phases **C through G** of `BACKEND_SCOPE.md`.
+Contains services for Phases **C through G** of `BACKEND_SCOPE.md`, with
+unfinished integrations and workflows. This is not a feature-complete online
+release. The Flutter app remains offline; see
+[PRODUCTION_READINESS.md](../PRODUCTION_READINESS.md) for the audited status.
 
 Stack is as C1 recommends: Go, Postgres 16, Redis 7, containerized deploys on
 Fly.io.
@@ -75,9 +78,10 @@ export TEST_REDIS_URL="redis://localhost:6379/0"
 make test
 ```
 
-The auth tests run against a real Postgres — rotation and reuse detection are
-transactional behaviour that a mock would not prove. Without
-`TEST_DATABASE_URL` they skip rather than pass vacuously.
+Auth, profile, API and session integration tests use real PostgreSQL; API,
+hub and matchmaking tests also need Redis. Set both variables. Some packages
+skip their entire test run when `TEST_DATABASE_URL` is absent, so a successful
+bare `go test ./...` does not establish integration coverage.
 
 ## Configuration
 
@@ -92,6 +96,11 @@ transactional behaviour that a mock would not prove. Without
 | `GOOGLE_CLIENT_IDS` | in prod | — | comma-separated OAuth client IDs |
 | `ACCESS_TOKEN_TTL` | no | `15m` | |
 | `REFRESH_TOKEN_TTL` | no | `1440h` (60d) | |
+| `S3_BUCKET`, `S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | outside dev | — | Durable SGF storage; endpoint must use HTTPS |
+| `S3_REGION` | no | `auto` | Match the storage provider |
+| `TRUSTED_PROXY_CIDRS` | behind a proxy | empty | Comma-separated networks of trusted immediate proxies; otherwise forwarding headers are ignored |
+| `FCM_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS` | for push | — | FCM project and application credentials |
+| `SHUTDOWN_GRACE` | no | `20s` | Positive duration |
 
 ## Endpoints
 
@@ -168,10 +177,12 @@ knowing about:
 The client hashes positions with a Zobrist table seeded from Dart's
 `math.Random`, whose sequence no other language reproduces. Superko is
 therefore checked with **each engine's own internal hash**, which is only ever
-compared against itself. Anything that crosses the wire — `GAME_SNAPSHOT`,
+compared against itself. Server values crossing the wire — `GAME_SNAPSHOT`,
 `MOVE_PLAYED`, `game_moves.state_hash`, the opening index key — uses
-`StateHash`, a SHA-256 over the board bytes and side to move, which is
-identical in any implementation.
+`StateHash`, a SHA-256 over one byte of board size, one byte of side to move,
+then row-major cell bytes (`0` empty, `1` black, `2` white). Flutter does not
+yet verify server hashes. Both engines now execute the same seven rule
+fixtures from `internal/goban/testdata/rules.json`.
 
 If you ever port the engine again, reproduce `StateHash`, not the Zobrist
 table.
@@ -186,24 +197,26 @@ table.
 | Correspondence deadlines + vacation drain | 1min | E4 |
 | Leaderboard refresh | 5min | C3 |
 | Reap finished sessions | 30s (in the API) | D2 |
+| Recover unowned active sessions; retry durable game completions | 30s (in the API; also on startup) | D2/C4/E1 |
 | Prune refresh tokens, sweep rooms, decay ratings, expire subscriptions | hourly | C2/D5/E1/G1 |
 
-## What needs credentials before it works
+## External integrations
 
-These are wired and tested, but inert until someone supplies an account:
+Provider-backed paths still need staging verification. Payments and purchases
+also need implementation; adding credentials alone does not enable them.
 
 | Feature | Needs | Behaviour without it |
 |---|---|---|
 | Push notifications (C5) | `FCM_PROJECT_ID` + service account | Queued in the outbox, never sent |
-| SGF object storage (C4) | `S3_BUCKET` and keys | In-memory store, lost on restart |
+| SGF object storage (C4) | S3 endpoint, bucket and keys | In-memory only in dev; staging/production startup fails without durable storage |
 | Google sign-in (C2) | `GOOGLE_CLIENT_IDS` | `/auth/google` rejects every token |
-| Purchases (G1) | App Store / Play credentials | `/purchases/redeem` returns 503 |
-| Coach payouts (F5) | A payment processor account | Bookings work, no money moves |
+| Purchases (G1) | Receipt validator and authenticated store webhook implementations, then credentials | Redemption and store webhooks return 503 |
+| Coach payments (F5) | Real processor implementation and account | Booking returns 503 before creating a session |
 | Admin review queue (E2) | `ADMIN_USER_IDS` | All `/admin/*` routes return 403 |
 
-Two of these fail **closed** on purpose. An unverified receipt must never
-grant an entitlement, and an unconfigured Google client must never
-authenticate anyone.
+Unverified receipts and webhooks never grant entitlements. An unconfigured
+Google client never authenticates a user, and missing payment processing
+never reports a successful charge.
 
 ## Not built here
 

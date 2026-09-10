@@ -11,7 +11,10 @@ import (
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
 
+	"github.com/prathpatel/gogame-backend/internal/anticheat"
+	"github.com/prathpatel/gogame-backend/internal/archive"
 	"github.com/prathpatel/gogame-backend/internal/auth"
+	"github.com/prathpatel/gogame-backend/internal/chat"
 	"github.com/prathpatel/gogame-backend/internal/game"
 	"github.com/prathpatel/gogame-backend/internal/goban"
 )
@@ -22,7 +25,7 @@ const (
 	idleTimeout       = 60 * time.Second
 	writeTimeout      = 10 * time.Second
 	// outboundBuffer sizes each connection's event queue. A slow client that
-	// fills it gets events dropped rather than stalling the game actor.
+	// fills it is disconnected so it can reconnect for a fresh snapshot.
 	outboundBuffer = 64
 )
 
@@ -34,6 +37,9 @@ type Server struct {
 	// AllowedOrigins gates the CORS check on the upgrade. Empty means
 	// same-origin only, which is right for the mobile app.
 	AllowedOrigins []string
+	Chat           *chat.Service
+	Archive        *archive.Service
+	Anticheat      *anticheat.Service
 }
 
 // NewServer builds the WebSocket handler.
@@ -43,13 +49,14 @@ func NewServer(a *auth.Service, h *game.Hub, lg *slog.Logger, origins []string) 
 
 // conn is one client connection.
 type conn struct {
-	ws       *websocket.Conn
-	userID   uuid.UUID
-	isGuest  bool
-	sub      *game.Subscriber
-	session  *game.Session
-	log      *slog.Logger
-	lastSeen time.Time
+	ws            *websocket.Conn
+	userID        uuid.UUID
+	isGuest       bool
+	sub           *game.Subscriber
+	session       *game.Session
+	log           *slog.Logger
+	expiresAt     time.Time
+	forwardCancel context.CancelFunc
 }
 
 // Handle serves GET /ws.
@@ -62,6 +69,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer c.CloseNow()
+	c.SetReadLimit(16 << 10)
 
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -79,7 +87,7 @@ func (s *Server) Handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cn := &conn{ws: c, log: s.log, lastSeen: time.Now()}
+	cn := &conn{ws: c, log: s.log}
 	if claims != nil {
 		if err := cn.authenticate(ctx, claims); err != nil {
 			_ = c.Close(websocket.StatusPolicyViolation, "authentication failed")
@@ -96,6 +104,13 @@ func (c *conn) authenticate(ctx context.Context, claims *auth.Claims) error {
 	if err != nil {
 		return err
 	}
+	if c.userID != uuid.Nil && c.userID != id {
+		return errors.New("identity cannot change on an open connection")
+	}
+	if claims.ExpiresAt == nil {
+		return errors.New("token has no expiry")
+	}
+	c.expiresAt = claims.ExpiresAt.Time
 	c.userID = id
 	c.isGuest = claims.IsGuest
 	c.log = c.log.With("userId", id)
@@ -106,15 +121,25 @@ func (c *conn) authenticate(ctx context.Context, claims *auth.Claims) error {
 // readLoop consumes client frames until the connection closes or goes idle.
 func (s *Server) readLoop(ctx context.Context, c *conn) {
 	defer func() {
+		if c.forwardCancel != nil {
+			c.forwardCancel()
+		}
 		if c.session != nil && c.sub != nil {
 			_ = c.session.Unsubscribe(c.sub)
 		}
 	}()
 
+	// Bound command work before JSON parsing, authorization queries or actor
+	// calls. Normal play and heartbeats consume far less than this allowance.
+	tokens, lastRefill := 30.0, time.Now()
 	for {
 		// A read deadline enforces D1's 60s idle disconnect: heartbeats from a
 		// live client reset it, a dead one trips it.
-		readCtx, cancel := context.WithTimeout(ctx, idleTimeout)
+		timeout := idleTimeout
+		if !c.expiresAt.IsZero() && time.Until(c.expiresAt) < timeout {
+			timeout = time.Until(c.expiresAt)
+		}
+		readCtx, cancel := context.WithTimeout(ctx, timeout)
 		_, data, err := c.ws.Read(readCtx)
 		cancel()
 		if err != nil {
@@ -123,7 +148,15 @@ func (s *Server) readLoop(ctx context.Context, c *conn) {
 			}
 			return
 		}
-		c.lastSeen = time.Now()
+		now := time.Now()
+		tokens = min(30, tokens+now.Sub(lastRefill).Seconds()*10)
+		lastRefill = now
+		if tokens < 1 {
+			s.protoError(ctx, c, 0, "rate_limited", "too many commands")
+			c.ws.CloseNow()
+			return
+		}
+		tokens--
 
 		var env Envelope
 		if err := json.Unmarshal(data, &env); err != nil {
@@ -136,13 +169,38 @@ func (s *Server) readLoop(ctx context.Context, c *conn) {
 }
 
 func (s *Server) dispatch(ctx context.Context, c *conn, env Envelope) {
+	if !c.expiresAt.IsZero() && !time.Now().Before(c.expiresAt) {
+		s.protoError(ctx, c, env.Seq, "token_expired", "refresh your access token and reconnect")
+		c.ws.CloseNow()
+		return
+	}
+	if c.userID != uuid.Nil && s.Anticheat != nil {
+		restrictions, err := s.Anticheat.Restrictions(ctx, c.userID)
+		if err != nil {
+			s.protoError(ctx, c, env.Seq, "unavailable", "authorization unavailable")
+			c.ws.CloseNow()
+			return
+		}
+		for _, restriction := range restrictions {
+			if restriction.Kind == "suspend" {
+				s.protoError(ctx, c, env.Seq, "suspended", "account suspended")
+				c.ws.CloseNow()
+				return
+			}
+		}
+	}
 	// Every message except AUTHENTICATE requires an authenticated connection.
 	if c.userID == uuid.Nil && ClientMessageType(env.Type) != MsgAuthenticate {
 		_ = writeFrame(ctx, c.ws, Envelope{Type: string(MsgError), Seq: env.Seq},
 			ErrorPayload{Code: "unauthenticated", Message: "authenticate first"})
+		c.ws.CloseNow()
 		return
 	}
 
+	if env.GameID != "" && c.session != nil && ClientMessageType(env.Type) != MsgJoinGame && env.GameID != c.session.ID.String() {
+		s.protoError(ctx, c, env.Seq, "wrong_game", "join the requested game first")
+		return
+	}
 	switch ClientMessageType(env.Type) {
 	case MsgAuthenticate:
 		var p AuthenticatePayload
@@ -153,10 +211,12 @@ func (s *Server) dispatch(ctx context.Context, c *conn, env Envelope) {
 		claims, err := s.auth.ParseAccessToken(p.Token)
 		if err != nil {
 			s.protoError(ctx, c, env.Seq, "invalid_token", "token is not valid")
+			c.ws.CloseNow()
 			return
 		}
 		if err := c.authenticate(ctx, claims); err != nil {
-			s.protoError(ctx, c, env.Seq, "auth_failed", err.Error())
+			s.protoError(ctx, c, env.Seq, "auth_failed", "authentication failed")
+			c.ws.CloseNow()
 		}
 
 	case MsgHeartbeat:
@@ -171,6 +231,10 @@ func (s *Server) dispatch(ctx context.Context, c *conn, env Envelope) {
 		s.joinGame(ctx, c, env.Seq, p.GameID)
 
 	case MsgLeaveGame:
+		if c.forwardCancel != nil {
+			c.forwardCancel()
+			c.forwardCancel = nil
+		}
 		if c.session != nil && c.sub != nil {
 			_ = c.session.Unsubscribe(c.sub)
 			c.session, c.sub = nil, nil
@@ -233,7 +297,14 @@ func (s *Server) dispatch(ctx context.Context, c *conn, env Envelope) {
 			return
 		}
 		s.requireGame(ctx, c, env.Seq, func(g *game.Session) error {
-			return g.Chat(c.userID, p.Text)
+			if s.Chat == nil {
+				return errors.New("chat unavailable")
+			}
+			message, err := s.Chat.Post(ctx, g.ID, c.userID, p.Text)
+			if err != nil {
+				return err
+			}
+			return g.Chat(c.userID, message.Body)
 		})
 
 	default:
@@ -247,12 +318,25 @@ func (s *Server) joinGame(ctx context.Context, c *conn, seq int64, rawID string)
 		s.protoError(ctx, c, seq, "invalid_game_id", "game id must be a uuid")
 		return
 	}
+	if s.Archive != nil {
+		if _, err := s.Archive.Get(ctx, gameID, c.userID); err != nil {
+			s.protoError(ctx, c, seq, "game_not_found", "no accessible game")
+			return
+		}
+	}
 	sess, err := s.hub.Get(ctx, gameID)
 	if err != nil {
+		if errors.Is(err, game.ErrOwnedElsewhere) {
+			s.protoError(ctx, c, seq, "game_on_another_instance", "reconnect through the game owner")
+			return
+		}
 		s.protoError(ctx, c, seq, "game_not_found", "no such active game")
 		return
 	}
 	// Leave any previous game so one connection never straddles two.
+	if c.forwardCancel != nil {
+		c.forwardCancel()
+	}
 	if c.session != nil && c.sub != nil {
 		_ = c.session.Unsubscribe(c.sub)
 	}
@@ -262,7 +346,9 @@ func (s *Server) joinGame(ctx context.Context, c *conn, seq int64, rawID string)
 		return
 	}
 	c.session, c.sub = sess, sub
-	go s.forward(ctx, c, sub)
+	forwardCtx, cancel := context.WithCancel(ctx)
+	c.forwardCancel = cancel
+	go s.forward(forwardCtx, c, sub)
 }
 
 // forward relays session events to the socket.
@@ -273,6 +359,9 @@ func (s *Server) forward(ctx context.Context, c *conn, sub *game.Subscriber) {
 			return
 		case ev, ok := <-sub.Out:
 			if !ok {
+				if ctx.Err() == nil {
+					c.ws.CloseNow()
+				}
 				return
 			}
 			env := Envelope{Type: ev.Type, GameID: ev.GameID, Payload: ev.Payload}

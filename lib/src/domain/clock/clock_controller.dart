@@ -31,6 +31,24 @@ class ClockSnapshot {
     required this.flagged,
   });
 
+  Map<String, Object> toJson() => {
+        'mainMillis': mainMillis,
+        'periodMillis': periodMillis,
+        'periodsLeft': periodsLeft,
+        'stonesLeftInPeriod': stonesLeftInPeriod,
+        'inOvertime': inOvertime,
+        'flagged': flagged,
+      };
+
+  factory ClockSnapshot.fromJson(Map<String, dynamic> json) => ClockSnapshot(
+        mainMillis: json['mainMillis'] as int,
+        periodMillis: json['periodMillis'] as int,
+        periodsLeft: json['periodsLeft'] as int,
+        stonesLeftInPeriod: json['stonesLeftInPeriod'] as int,
+        inOvertime: json['inOvertime'] as bool,
+        flagged: json['flagged'] as bool,
+      );
+
   ClockSnapshot copyWith({
     int? mainMillis,
     int? periodMillis,
@@ -86,6 +104,15 @@ class ClockController {
         _white = _seedFor(control),
         _active = active;
 
+  ClockController.restore(
+    this.control, {
+    required ClockSnapshot black,
+    required ClockSnapshot white,
+    required StoneColor active,
+  })  : _black = black,
+        _white = white,
+        _active = active;
+
   static ClockSnapshot _seedFor(TimeControl tc) {
     if (tc.kind == TimeControlKind.none) {
       return const ClockSnapshot(
@@ -133,8 +160,7 @@ class ClockController {
     _active = active;
   }
 
-  ClockSnapshot _get(StoneColor c) =>
-      c == StoneColor.black ? _black : _white;
+  ClockSnapshot _get(StoneColor c) => c == StoneColor.black ? _black : _white;
 
   void _set(StoneColor c, ClockSnapshot snap) {
     if (c == StoneColor.black) {

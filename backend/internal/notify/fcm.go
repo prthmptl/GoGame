@@ -21,9 +21,8 @@ import (
 type FCM struct {
 	ProjectID string
 	http      *http.Client
-	once      sync.Once
+	mu        sync.Mutex
 	tokenSrc  oauth2.TokenSource
-	initErr   error
 }
 
 // NewFCMFromEnv builds a sender from GOOGLE_APPLICATION_CREDENTIALS and
@@ -38,16 +37,22 @@ func NewFCMFromEnv() *FCM {
 }
 
 func (f *FCM) source(ctx context.Context) (oauth2.TokenSource, error) {
-	f.once.Do(func() {
-		creds, err := google.FindDefaultCredentials(ctx,
-			"https://www.googleapis.com/auth/firebase.messaging")
-		if err != nil {
-			f.initErr = fmt.Errorf("load FCM credentials: %w", err)
-			return
-		}
-		f.tokenSrc = creds.TokenSource
-	})
-	return f.tokenSrc, f.initErr
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tokenSrc != nil {
+		return f.tokenSrc, nil
+	}
+	// OAuth retains this context for future refreshes. A delivery batch's
+	// cancelled context would otherwise break all subsequent token refreshes.
+	// The dedicated HTTP client still bounds every credential request.
+	credentialCtx := context.WithValue(context.WithoutCancel(ctx), oauth2.HTTPClient, f.http)
+	creds, err := google.FindDefaultCredentials(credentialCtx,
+		"https://www.googleapis.com/auth/firebase.messaging")
+	if err != nil {
+		return nil, fmt.Errorf("load FCM credentials: %w", err)
+	}
+	f.tokenSrc = creds.TokenSource
+	return f.tokenSrc, nil
 }
 
 // Send delivers one notification to one device token.
@@ -111,7 +116,7 @@ func (f *FCM) Send(ctx context.Context, token, platform string, n Notification) 
 	return fmt.Errorf("fcm send %s: %s", resp.Status, payload)
 }
 
-// NoopSender drops notifications. Used in tests and in environments without
+// NoopSender drops notifications. Only use it explicitly in tests, not without
 // push credentials.
 type NoopSender struct{}
 

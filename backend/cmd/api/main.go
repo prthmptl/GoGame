@@ -96,11 +96,14 @@ func run() error {
 		blobStore = s3
 		lg.Info("object storage enabled", "bucket", s3.Bucket)
 	} else {
+		if cfg.Env != config.EnvDev {
+			return errors.New("S3_BUCKET and storage credentials are required outside dev")
+		}
 		blobStore = blob.NewMemory()
 		lg.Warn("S3_BUCKET not set; SGF bodies are in-memory and will not survive a restart")
 	}
 
-	var pushSender notify.Sender = notify.NoopSender{}
+	var pushSender notify.Sender
 	if fcm := notify.NewFCMFromEnv(); fcm != nil {
 		pushSender = fcm
 		lg.Info("push notifications enabled", "project", fcm.ProjectID)
@@ -118,11 +121,18 @@ func run() error {
 	notifySvc := notify.NewService(st.DB, pushSender)
 
 	hub := game.NewHub(st.DB, st.Redis, instanceID,
-		api.GameHooks(st.DB, ratingSvc, cheatSvc, archiveSvc, notifySvc, lg))
+		game.Hooks{})
+	defer hub.Close()
+	if err := hub.RecoverActive(ctx); err != nil {
+		return fmt.Errorf("recover games: %w", err)
+	}
 	matcher := matchmaking.NewService(st.Redis)
 	matcher.Pair = api.PairPlayers(hub)
 	lg.Info("game hub ready", "instance", instanceID)
 
+	chatSvc := chat.NewService(st.DB, st.Redis)
+	wsServer := ws.NewServer(authSvc, hub, lg, allowedOrigins())
+	wsServer.Chat, wsServer.Archive, wsServer.Anticheat = chatSvc, archiveSvc, cheatSvc
 	srv := &http.Server{
 		Addr: fmt.Sprintf(":%d", cfg.Port),
 		Handler: api.New(api.Deps{
@@ -139,9 +149,8 @@ func run() error {
 			Social:         social.NewService(st.DB),
 			Openings:       openings.NewService(st.DB),
 			ProGames:       progames.NewService(st.DB, blobStore),
-			// Payments are not executed without a processor account; the
-			// no-op processor lets bookings work while money does not move.
-			Coaching: coaching.NewService(st.DB, coaching.NoopProcessor{}),
+			// Bookings fail closed until a real payment processor is configured.
+			Coaching: coaching.NewService(st.DB, nil),
 			Billing:  billing.NewService(st.DB),
 			// Receipt validation fails closed until store credentials exist,
 			// so an unverified receipt can never grant an entitlement.
@@ -149,8 +158,8 @@ func run() error {
 			Hub:         hub,
 			Matchmaking: matcher,
 			Rooms:       rooms.NewService(st.DB),
-			Chat:        chat.NewService(st.DB, st.Redis),
-			WS:          ws.NewServer(authSvc, hub, lg, allowedOrigins()),
+			Chat:        chatSvc,
+			WS:          wsServer,
 			Log:         lg,
 			Version:     version,
 		}).Routes(),
@@ -205,6 +214,27 @@ func run() error {
 				if n := hub.Reap(ctx); n > 0 {
 					lg.Info("reaped finished games", "games", n, "live", hub.LiveCount())
 				}
+				if err := hub.RecoverActive(ctx); err != nil {
+					lg.Error("game recovery failed", "error", err)
+				}
+			}
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for {
+			workCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			err := api.ProcessGameCompletions(workCtx, st.DB, ratingSvc, cheatSvc, archiveSvc, notifySvc, lg)
+			cancel()
+			if err != nil {
+				lg.Error("completion retry failed", "error", err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
 			}
 		}
 	}()

@@ -35,6 +35,32 @@ type Control struct {
 	StonesPerPeriod  int  `json:"stonesPerPeriod"`
 }
 
+// Validate bounds client-supplied controls before any clock loop or arithmetic.
+func (c Control) Validate() error {
+	if c.MainSeconds < 0 || c.MainSeconds > 86400 || c.IncrementSeconds < 0 || c.IncrementSeconds > 3600 ||
+		c.PeriodSeconds < 0 || c.PeriodSeconds > 3600 || c.Periods < 0 || c.Periods > 100 ||
+		c.StonesPerPeriod < 0 || c.StonesPerPeriod > 361 {
+		return fmt.Errorf("time control values out of range")
+	}
+	switch c.Kind {
+	case KindNone:
+		return nil
+	case KindAbsolute, KindFischer:
+		if c.MainSeconds > 0 {
+			return nil
+		}
+	case KindByoYomi:
+		if c.PeriodSeconds > 0 && c.Periods > 0 {
+			return nil
+		}
+	case KindCanadian:
+		if c.PeriodSeconds > 0 && c.StonesPerPeriod > 0 {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid time control")
+}
+
 // NoControl is an untimed game.
 func NoControl() Control { return Control{Kind: KindNone} }
 

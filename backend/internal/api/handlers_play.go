@@ -40,12 +40,31 @@ func (s *Server) handleEnqueue(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var rating int
-	if err := s.store.DB.QueryRow(r.Context(),
-		`SELECT rating FROM users WHERE id = $1`, caller.ID).Scan(&rating); err != nil {
+	if req.Mode == "ranked" {
+		restricted, err := s.anticheat.IsRankedRestricted(r.Context(), caller.ID)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if restricted {
+			writeError(w, http.StatusForbidden, "ranked_restricted", "ranked play is restricted")
+			return
+		}
+	}
+	if err := req.TimeControl.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_clock", err.Error())
+		return
+	}
+	if req.BoardSize != 9 && req.BoardSize != 13 && req.BoardSize != 19 {
+		writeError(w, http.StatusBadRequest, "invalid_board", "unsupported board size")
+		return
+	}
+	record, err := s.rating.Get(r.Context(), caller.ID, req.BoardSize, req.TimeControl.TimeClass())
+	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
+	rating := int(record.Rating)
 	ticket, err := s.matchmaking.Enqueue(r.Context(), caller.ID, rating, matchmaking.Request{
 		Mode: req.Mode, BoardSize: req.BoardSize, TimeControl: req.TimeControl,
 		Ruleset: req.Ruleset, Region: req.Region,
@@ -171,7 +190,10 @@ func (s *Server) handleStartRoom(w http.ResponseWriter, r *http.Request) {
 		Handicap    int           `json:"handicap"`
 		TimeControl clock.Control `json:"timeControl"`
 	}
-	_ = json.Unmarshal(room.Settings, &settings)
+	if err := json.Unmarshal(room.Settings, &settings); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_settings", "invalid room settings")
+		return
+	}
 	if settings.BoardSize == 0 {
 		settings.BoardSize = 19
 	}
@@ -182,18 +204,28 @@ func (s *Server) handleStartRoom(w http.ResponseWriter, r *http.Request) {
 		settings.TimeControl = clock.Absolute(20 * 60)
 	}
 
-	sess, err := s.hub.Create(r.Context(), game.Config{
+	cfg := game.Config{
 		Black:       game.Player{UserID: &players[0], Color: "black"},
 		White:       game.Player{UserID: &players[1], Color: "white"},
 		Rules:       goban.NewConfig(settings.BoardSize, goban.Ruleset(settings.Ruleset), settings.Handicap),
 		TimeControl: settings.TimeControl,
 		Mode:        "friend",
-	})
-	if err != nil {
-		s.fail(w, r, err)
+	}
+	if err := cfg.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_settings", err.Error())
 		return
 	}
-	if err := s.rooms.Start(r.Context(), room.ID, sess.ID); err != nil {
+	sess, err := s.hub.CreateInRoom(r.Context(), cfg, room.ID)
+	if err != nil {
+		var started *game.RoomAlreadyStarted
+		if errors.As(err, &started) {
+			writeJSON(w, http.StatusOK, map[string]any{"gameId": started.GameID})
+			return
+		}
+		if errors.Is(err, game.ErrRoomClosed) {
+			writeError(w, http.StatusConflict, "room_closed", "that room is no longer open")
+			return
+		}
 		s.fail(w, r, err)
 		return
 	}

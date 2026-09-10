@@ -32,6 +32,7 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void initState() {
     super.initState();
+    widget.vm.setVisible(true);
     widget.vm.addListener(_onVm);
     widget.settings.addListener(_onSettings);
   }
@@ -39,6 +40,7 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void dispose() {
     widget.vm.removeListener(_onVm);
+    widget.vm.setVisible(false);
     widget.settings.removeListener(_onSettings);
     super.dispose();
   }

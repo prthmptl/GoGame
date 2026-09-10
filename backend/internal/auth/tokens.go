@@ -66,11 +66,12 @@ func (s *Service) ParseAccessToken(raw string) (*Claims, error) {
 	},
 		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
 		jwt.WithIssuer(s.issuer),
+		jwt.WithExpirationRequired(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
 	}
-	if _, err := claims.UserID(); err != nil {
+	if id, err := claims.UserID(); err != nil || id == uuid.Nil {
 		return nil, fmt.Errorf("%w: subject is not a uuid", ErrInvalidToken)
 	}
 	return claims, nil

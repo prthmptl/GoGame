@@ -130,6 +130,7 @@ class _BoardCanvasState extends State<BoardCanvas>
     final lastMove = widget.overlay.lastMove;
     if (lastMove != _prevLastMove) {
       if (lastMove != null &&
+          widget.board.inBounds(lastMove) &&
           widget.board.cellAt(lastMove) != CellState.empty) {
         _placeController.value = 0.55;
         _placeController.animateTo(1, curve: Curves.easeOut);
@@ -174,7 +175,7 @@ class _BoardCanvasState extends State<BoardCanvas>
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTapDown: (details) {
+      onTapUp: (details) {
         final box = context.findRenderObject() as RenderBox?;
         if (box == null) return;
         final size = box.size;

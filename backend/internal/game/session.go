@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -75,22 +76,28 @@ type Session struct {
 	cfg   Config
 	db    *pgxpool.Pool
 	hooks Hooks
+	owner string
 
 	// Everything below is owned by the actor goroutine.
-	state       *goban.State
-	clock       *clock.Controller
-	dead        map[goban.Point]bool
-	confirmed   map[string]bool
-	subscribers map[*Subscriber]struct{}
-	lastMoveAt  time.Time
-	ended       bool
+	state        *goban.State
+	clock        *clock.Controller
+	dead         map[goban.Point]bool
+	confirmed    map[string]bool
+	subscribers  map[*Subscriber]struct{}
+	lastMoveAt   time.Time
+	lastChargeAt time.Time
+	lastSeq      map[string]int64
+	revision     int64
+	ended        bool
 
 	// finished mirrors `ended` for readers outside the actor goroutine (the
 	// hub's reaper). `ended` itself stays actor-owned and lock-free.
 	finished atomic.Bool
 
-	commands chan command
-	done     chan struct{}
+	commands  chan command
+	done      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
 }
 
 // Hooks let other phases observe game completion without this package
@@ -111,22 +118,30 @@ type Result struct {
 
 // New builds a session and starts its actor goroutine.
 func New(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, cfg Config, hooks Hooks) *Session {
+	s := newSession(db, id, cfg, hooks)
+	go s.run(ctx)
+	return s
+}
+
+func newSession(db *pgxpool.Pool, id uuid.UUID, cfg Config, hooks Hooks) *Session {
 	first := "black"
 	if cfg.Rules.Handicap > 0 {
 		first = "white"
 	}
 	s := &Session{
 		ID: id, cfg: cfg, db: db, hooks: hooks,
-		state:       goban.NewGame(cfg.Rules),
-		clock:       clock.New(cfg.TimeControl, first),
-		dead:        map[goban.Point]bool{},
-		confirmed:   map[string]bool{},
-		subscribers: map[*Subscriber]struct{}{},
-		lastMoveAt:  time.Now().UTC(),
-		commands:    make(chan command, 64),
-		done:        make(chan struct{}),
+		state:        goban.NewGame(cfg.Rules),
+		clock:        clock.New(cfg.TimeControl, first),
+		dead:         map[goban.Point]bool{},
+		confirmed:    map[string]bool{},
+		subscribers:  map[*Subscriber]struct{}{},
+		lastMoveAt:   time.Now().UTC(),
+		lastChargeAt: time.Now().UTC(),
+		lastSeq:      map[string]int64{},
+		commands:     make(chan command, 64),
+		done:         make(chan struct{}),
+		stopped:      make(chan struct{}),
 	}
-	go s.run(ctx)
 	return s
 }
 
@@ -134,20 +149,52 @@ func New(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, cfg Config, hooks 
 // in-memory position is derived from the same engine that validated them.
 func Restore(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, cfg Config,
 	moves []StoredMove, clockState clock.State, hooks Hooks) (*Session, error) {
-	s := New(ctx, db, id, cfg, hooks)
+	s, err := restoreSession(db, id, cfg, moves, clockState, hooks)
+	if err != nil {
+		return nil, err
+	}
+	go s.run(ctx)
+	return s, nil
+}
+
+func restoreSession(db *pgxpool.Pool, id uuid.UUID, cfg Config, moves []StoredMove, clockState clock.State, hooks Hooks) (*Session, error) {
+	s := newSession(db, id, cfg, hooks)
 	replay := goban.NewGame(cfg.Rules)
 	for _, m := range moves {
+		if m.MoveNumber != len(replay.History)+1 || (m.Player != "black" && m.Player != "white") ||
+			(m.Kind == "place" && (m.Row == nil || m.Col == nil)) ||
+			(m.Kind != "place" && m.Kind != "pass" && m.Kind != "resign") {
+			return nil, fmt.Errorf("invalid stored move %d", m.MoveNumber)
+		}
+		// A subsequent move after two passes records that play was resumed.
+		if replay.Status == goban.StatusScoring {
+			replay.Status, replay.ConsecutivePasses = goban.StatusActive, 0
+		}
+		if m.Kind == "resign" {
+			replay.ToMove = parseColor(m.Player)
+		}
+		if colorName(replay.ToMove) != m.Player {
+			return nil, fmt.Errorf("wrong player at move %d", m.MoveNumber)
+		}
 		next, _, err := replay.Apply(m.Intent())
 		if err != nil {
-			s.Close()
 			return nil, fmt.Errorf("replay move %d: %w", m.MoveNumber, err)
 		}
 		replay = next
 	}
 	s.state = replay
 	// Restore charges time that passed while the game was not in memory.
-	s.clock = clock.Restore(clockState, time.Now().UTC())
-	s.lastMoveAt = time.Now().UTC()
+	now := time.Now().UTC()
+	restoreAt := now
+	if replay.Status != goban.StatusActive {
+		restoreAt = clockState.UpdatedAt
+	}
+	s.clock = clock.Restore(clockState, restoreAt)
+	s.lastMoveAt = clockState.UpdatedAt
+	if s.lastMoveAt.IsZero() {
+		s.lastMoveAt = now
+	}
+	s.lastChargeAt = now
 	return s, nil
 }
 
@@ -175,11 +222,14 @@ func (m StoredMove) Intent() goban.Intent {
 func (s *Session) Finished() bool { return s.finished.Load() }
 
 // Close stops the actor.
-func (s *Session) Close() {
+func (s *Session) Close() { s.closeOnce.Do(func() { close(s.done) }) }
+
+func (s *Session) Closed() bool {
 	select {
 	case <-s.done:
+		return true
 	default:
-		close(s.done)
+		return false
 	}
 }
 
@@ -237,15 +287,26 @@ func (s *Session) Tick() error { return s.send(command{kind: "tick"}) }
 var errSessionClosed = errors.New("game: session closed")
 
 func (s *Session) send(c command) error {
+	if s.Closed() {
+		return errSessionClosed
+	}
+	c.reply = make(chan error, 1)
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
 	select {
 	case <-s.done:
 		return errSessionClosed
 	case s.commands <- c:
-		return nil
-	case <-time.After(2 * time.Second):
-		// A full command queue means the actor is wedged; failing fast is
-		// better than blocking a WebSocket read loop indefinitely.
+	case <-timer.C:
 		return errors.New("game: session busy")
+	}
+	select {
+	case err := <-c.reply:
+		return err
+	case <-s.done:
+		return errSessionClosed
+	case <-timer.C:
+		return errors.New("game: command timed out")
 	}
 }
 
@@ -253,6 +314,8 @@ func (s *Session) send(c command) error {
 
 func (s *Session) run(ctx context.Context) {
 	defer func() {
+		s.Close()
+		defer close(s.stopped)
 		for sub := range s.subscribers {
 			close(sub.Out)
 		}
@@ -264,7 +327,10 @@ func (s *Session) run(ctx context.Context) {
 		case <-s.done:
 			return
 		case c := <-s.commands:
-			s.handle(ctx, c)
+			opCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			s.handle(opCtx, c)
+			cancel()
+			c.reply <- nil
 		}
 	}
 }
@@ -277,7 +343,10 @@ func (s *Session) handle(ctx context.Context, c command) {
 		// board, whether it is a first join or a reconnect.
 		s.emitTo(c.sub, "GAME_SNAPSHOT", s.snapshot())
 	case "unsubscribe":
-		delete(s.subscribers, c.sub)
+		if _, ok := s.subscribers[c.sub]; ok {
+			delete(s.subscribers, c.sub)
+			close(c.sub.Out)
+		}
 	case "move":
 		s.applyMove(ctx, c, goban.PlaceAt(*c.point))
 	case "pass":
@@ -285,11 +354,11 @@ func (s *Session) handle(ctx context.Context, c command) {
 	case "resign":
 		s.applyMove(ctx, c, goban.ResignIntent())
 	case "mark_dead":
-		s.markDead(c)
+		s.markDead(ctx, c)
 	case "confirm_score":
 		s.confirmScore(ctx, c)
 	case "dispute_score":
-		s.disputeScore(c)
+		s.disputeScore(ctx, c)
 	case "chat":
 		s.emit("CHAT_RECEIVED", map[string]any{
 			"userId": c.userID, "text": c.text, "at": time.Now().UTC(),
@@ -320,9 +389,16 @@ func (s *Session) applyMove(ctx context.Context, c command, intent goban.Intent)
 		s.reject(c, string(goban.RejGameNotActive))
 		return
 	}
+	if !s.validSeq(c) {
+		return
+	}
+	if s.state.Status != goban.StatusActive && intent.Kind != goban.Resign {
+		s.reject(c, string(goban.RejGameNotActive))
+		return
+	}
 	// Turn order is checked before the engine so an out-of-turn move gets the
 	// specific reason rather than a generic rejection.
-	if color != colorName(s.state.ToMove) {
+	if intent.Kind != goban.Resign && color != colorName(s.state.ToMove) {
 		s.reject(c, string(goban.RejNotYourTurn))
 		return
 	}
@@ -332,7 +408,7 @@ func (s *Session) applyMove(ctx context.Context, c command, intent goban.Intent)
 
 	// Charge the thinking time before validating: a move that arrives after
 	// the flag has fallen must not be accepted.
-	if flagged := s.clock.Tick(thinkMillis); flagged != "" {
+	if flagged := s.charge(now); flagged != "" {
 		s.endGame(ctx, Result{
 			Winner:    other(flagged),
 			Result:    winnerLetter(other(flagged)) + "+T",
@@ -341,7 +417,12 @@ func (s *Session) applyMove(ctx context.Context, c command, intent goban.Intent)
 		return
 	}
 
-	next, move, err := s.state.Apply(intent)
+	base := s.state
+	if intent.Kind == goban.Resign {
+		base = base.Clone()
+		base.ToMove, base.Status = parseColor(color), goban.StatusActive
+	}
+	next, move, err := base.Apply(intent)
 	if err != nil {
 		var rej *goban.RejectedError
 		if errors.As(err, &rej) {
@@ -352,16 +433,24 @@ func (s *Session) applyMove(ctx context.Context, c command, intent goban.Intent)
 		return
 	}
 
+	previous, previousClock := s.state, *s.clock
+	previousMoveAt, previousSeq := s.lastMoveAt, s.lastSeq[color]
 	s.state = next
-	s.clock.OnMovePlayed(color)
+	if intent.Kind != goban.Resign {
+		s.clock.OnMovePlayed(color)
+	}
 	s.lastMoveAt = now
-
-	if err := s.persistMove(ctx, *move, thinkMillis); err != nil {
-		// The move is already applied in memory and broadcast below; losing
-		// the write would desync the archive, so surface it loudly.
-		s.emit("ERROR", map[string]string{
-			"code": "persist_failed", "message": err.Error(),
-		})
+	s.lastSeq[color] = c.seq
+	var result *Result
+	if next.Status == goban.StatusResigned {
+		result = &Result{Winner: other(color), Result: winnerLetter(other(color)) + "+R", EndReason: "resign"}
+		s.state.Status = goban.StatusComplete
+	}
+	if err := s.persist(ctx, move, thinkMillis, result); err != nil {
+		s.state, *s.clock = previous, previousClock
+		s.lastMoveAt, s.lastSeq[color] = previousMoveAt, previousSeq
+		s.persistenceFailed(c, err)
+		return
 	}
 	if s.hooks.OnMove != nil {
 		s.hooks.OnMove(ctx, s.ID, *move, thinkMillis)
@@ -375,15 +464,11 @@ func (s *Session) applyMove(ctx context.Context, c command, intent goban.Intent)
 	})
 	s.emitClock()
 
-	switch s.state.Status {
-	case goban.StatusScoring:
+	if s.state.Status == goban.StatusScoring {
 		s.emit("SCORING_STARTED", s.scorePayload())
-	case goban.StatusResigned:
-		s.endGame(ctx, Result{
-			Winner:    other(color),
-			Result:    winnerLetter(other(color)) + "+R",
-			EndReason: "resign",
-		})
+	}
+	if result != nil {
+		s.publishResult(ctx, *result)
 	}
 }
 
@@ -393,14 +478,14 @@ func (s *Session) reject(c command, reason string) {
 	ev := Event{Type: "MOVE_REJECTED", GameID: s.ID.String(), Payload: payload, TargetUser: &uid}
 	for sub := range s.subscribers {
 		if sub.UserID == uid {
-			deliver(sub, ev)
+			s.deliver(sub, ev)
 		}
 	}
 }
 
 // markDead toggles the whole group containing p, since players think in
 // groups rather than individual stones.
-func (s *Session) markDead(c command) {
+func (s *Session) markDead(ctx context.Context, c command) {
 	if s.state.Status != goban.StatusScoring {
 		s.reject(c, "not_scoring")
 		return
@@ -409,10 +494,19 @@ func (s *Session) markDead(c command) {
 		s.reject(c, "not_a_player")
 		return
 	}
+	if c.point == nil || !s.state.Board.InBounds(*c.point) {
+		s.reject(c, "out_of_bounds")
+		return
+	}
+	if !s.validSeq(c) {
+		return
+	}
 	if s.state.Board.At(*c.point) == goban.Empty {
 		s.reject(c, "empty_point")
 		return
 	}
+	previousDead, previousConfirmed := s.deadPoints(), s.confirmed
+	color, previousSeq := s.colorOf(c.userID), s.lastSeq[s.colorOf(c.userID)]
 	group := goban.FindGroup(s.state.Board, *c.point)
 	nowDead := !s.dead[group.Stones[0]]
 	for _, st := range group.Stones {
@@ -424,6 +518,16 @@ func (s *Session) markDead(c command) {
 	}
 	// Any change to the marking invalidates both players' confirmations.
 	s.confirmed = map[string]bool{}
+	s.lastSeq[color] = c.seq
+	if err := s.persist(ctx, nil, 0, nil); err != nil {
+		s.dead = map[goban.Point]bool{}
+		for _, p := range previousDead {
+			s.dead[p] = true
+		}
+		s.confirmed, s.lastSeq[color] = previousConfirmed, previousSeq
+		s.persistenceFailed(c, err)
+		return
+	}
 	s.emit("SCORE_UPDATED", s.scorePayload())
 }
 
@@ -433,8 +537,17 @@ func (s *Session) confirmScore(ctx context.Context, c command) {
 		s.reject(c, "not_scoring")
 		return
 	}
-	s.confirmed[color] = true
+	if !s.validSeq(c) {
+		return
+	}
+	previousConfirmed, previousSeq := s.confirmed[color], s.lastSeq[color]
+	s.confirmed[color], s.lastSeq[color] = true, c.seq
 	if !s.confirmed["black"] || !s.confirmed["white"] {
+		if err := s.persist(ctx, nil, 0, nil); err != nil {
+			s.confirmed[color], s.lastSeq[color] = previousConfirmed, previousSeq
+			s.persistenceFailed(c, err)
+			return
+		}
 		s.emit("SCORE_UPDATED", s.scorePayload())
 		return
 	}
@@ -447,16 +560,31 @@ func (s *Session) confirmScore(ctx context.Context, c command) {
 
 // disputeScore returns the game to play, which is how two players who cannot
 // agree on life and death settle it: by playing it out.
-func (s *Session) disputeScore(c command) {
+func (s *Session) disputeScore(ctx context.Context, c command) {
 	if s.colorOf(c.userID) == "" || s.state.Status != goban.StatusScoring {
 		s.reject(c, "not_scoring")
 		return
 	}
+	if !s.validSeq(c) {
+		return
+	}
+	previous, previousDead, previousConfirmed := s.state, s.dead, s.confirmed
+	color := s.colorOf(c.userID)
+	previousSeq, previousCharge, previousMove := s.lastSeq[color], s.lastChargeAt, s.lastMoveAt
+	s.state = s.state.Clone()
 	s.state.Status = goban.StatusActive
 	s.state.ConsecutivePasses = 0
 	s.dead = map[goban.Point]bool{}
 	s.confirmed = map[string]bool{}
 	s.lastMoveAt = time.Now().UTC()
+	s.lastChargeAt = s.lastMoveAt
+	s.lastSeq[color] = c.seq
+	if err := s.persist(ctx, nil, 0, nil); err != nil {
+		s.state, s.dead, s.confirmed = previous, previousDead, previousConfirmed
+		s.lastSeq[color], s.lastChargeAt, s.lastMoveAt = previousSeq, previousCharge, previousMove
+		s.persistenceFailed(c, err)
+		return
+	}
 	s.emit("GAME_SNAPSHOT", s.snapshot())
 }
 
@@ -465,10 +593,9 @@ func (s *Session) tick(ctx context.Context) {
 		return
 	}
 	now := time.Now().UTC()
-	elapsed := int(now.Sub(s.lastMoveAt).Milliseconds())
 	// Tick is idempotent in effect: it charges only what has elapsed since
 	// the last charge, so calling it more often changes nothing.
-	if flagged := s.clock.Tick(elapsed); flagged != "" {
+	if flagged := s.charge(now); flagged != "" {
 		s.endGame(ctx, Result{
 			Winner:    other(flagged),
 			Result:    winnerLetter(other(flagged)) + "+T",
@@ -476,7 +603,6 @@ func (s *Session) tick(ctx context.Context) {
 		})
 		return
 	}
-	s.lastMoveAt = now
 	s.emitClock()
 }
 
@@ -484,57 +610,54 @@ func (s *Session) endGame(ctx context.Context, r Result) {
 	if s.ended {
 		return
 	}
+	previous := s.state.Status
+	s.state.Status = goban.StatusComplete
+	if err := s.persist(ctx, nil, 0, &r); err != nil {
+		s.state.Status = previous
+		s.persistenceFailed(command{}, err)
+		return
+	}
+	s.publishResult(ctx, r)
+}
+
+func (s *Session) publishResult(ctx context.Context, r Result) {
 	s.ended = true
 	s.finished.Store(true)
-	s.state.Status = goban.StatusComplete
-
-	if err := s.persistResult(ctx, r); err != nil {
-		s.emit("ERROR", map[string]string{"code": "persist_failed", "message": err.Error()})
-	}
 	s.emit("GAME_ENDED", r)
 	if s.hooks.OnGameEnded != nil {
 		s.hooks.OnGameEnded(ctx, s.ID, r)
 	}
 }
 
-// --- persistence ---
-
-func (s *Session) persistMove(ctx context.Context, m goban.Move, thinkMillis int) error {
-	var row, col *int
-	if m.Point != nil {
-		r, c := m.Point.Row, m.Point.Col
-		row, col = &r, &c
+func (s *Session) charge(now time.Time) string {
+	if s.state.Status != goban.StatusActive {
+		return ""
 	}
-	captured, _ := json.Marshal(m.Captured)
-	clockJSON, _ := json.Marshal(s.clock.Export(time.Now().UTC()))
-
-	_, err := s.db.Exec(ctx, `
-		INSERT INTO game_moves (game_id, move_number, player, kind, row, col,
-		                        captured, state_hash, think_millis, clock_after)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-		ON CONFLICT (game_id, move_number) DO NOTHING`,
-		s.ID, m.Number, colorName(m.Player), string(m.Kind), row, col,
-		captured, s.state.StateHash(), thinkMillis, clockJSON)
-	if err != nil {
-		return fmt.Errorf("insert move: %w", err)
+	elapsed := int(now.Sub(s.lastChargeAt).Milliseconds())
+	s.lastChargeAt = now
+	// Restoring an already-expired clock must still end the game at a zero delta.
+	if s.clock.Black.Flagged {
+		return "black"
 	}
-	_, err = s.db.Exec(ctx,
-		`UPDATE games SET move_count = $2 WHERE id = $1`, s.ID, m.Number)
-	return err
+	if s.clock.White.Flagged {
+		return "white"
+	}
+	return s.clock.Tick(elapsed)
 }
 
-func (s *Session) persistResult(ctx context.Context, r Result) error {
-	var blackScore, whiteScore *float64
-	if r.Score != nil {
-		b, w := r.Score.BlackTotal(), r.Score.WhiteTotal()
-		blackScore, whiteScore = &b, &w
+func (s *Session) validSeq(c command) bool {
+	if c.seq <= s.lastSeq[s.colorOf(c.userID)] {
+		s.reject(c, "duplicate_or_stale_seq")
+		return false
 	}
-	_, err := s.db.Exec(ctx, `
-		UPDATE games SET status = 'completed', result = $2, winner = $3,
-		       end_reason = $4, black_score = $5, white_score = $6, ended_at = now()
-		WHERE id = $1`,
-		s.ID, r.Result, r.Winner, r.EndReason, blackScore, whiteScore)
-	return err
+	return true
+}
+
+func parseColor(color string) goban.Color {
+	if color == "black" {
+		return goban.Black
+	}
+	return goban.White
 }
 
 // --- event emission ---
@@ -558,6 +681,8 @@ func (s *Session) snapshot() map[string]any {
 		"clock":      s.clock.Export(time.Now().UTC()),
 		"config":     s.cfg.Rules,
 		"deadStones": s.deadPoints(),
+		"lastSeq":    s.lastSeq,
+		"confirmed":  s.confirmed,
 	}
 }
 
@@ -619,7 +744,7 @@ func (s *Session) emit(t string, payload any) {
 	}
 	ev := Event{Type: t, GameID: s.ID.String(), Payload: raw}
 	for sub := range s.subscribers {
-		deliver(sub, ev)
+		s.deliver(sub, ev)
 	}
 }
 
@@ -628,7 +753,7 @@ func (s *Session) emitTo(sub *Subscriber, t string, payload any) {
 	if err != nil {
 		return
 	}
-	deliver(sub, Event{Type: t, GameID: s.ID.String(), Payload: raw})
+	s.deliver(sub, Event{Type: t, GameID: s.ID.String(), Payload: raw})
 }
 
 func (s *Session) emitTo2(c command, t string, payload any) {
@@ -636,17 +761,19 @@ func (s *Session) emitTo2(c command, t string, payload any) {
 	ev := Event{Type: t, GameID: s.ID.String(), Payload: raw}
 	for sub := range s.subscribers {
 		if sub.UserID == c.userID {
-			deliver(sub, ev)
+			s.deliver(sub, ev)
 		}
 	}
 }
 
 // deliver never blocks the actor: a connection whose buffer is full is
 // dropped rather than stalling the whole game for everyone else.
-func deliver(sub *Subscriber, ev Event) {
+func (s *Session) deliver(sub *Subscriber, ev Event) {
 	select {
 	case sub.Out <- ev:
 	default:
+		delete(s.subscribers, sub)
+		close(sub.Out)
 	}
 }
 

@@ -1,8 +1,10 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
@@ -107,7 +109,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
           _report = null;
         });
       } catch (_) {
-        // ignore corrupt SGF
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Could not open this saved SGF.')));
+        }
       }
     }
   }
@@ -137,29 +142,36 @@ class _ReviewScreenState extends State<ReviewScreen> {
       withData: true,
     );
     if (picked == null) return;
-    String text;
-    final f = picked.files.first;
-    if (f.bytes != null) {
-      text = String.fromCharCodes(f.bytes!);
-    } else if (f.path != null) {
-      text = await File(f.path!).readAsString();
-    } else {
-      return;
+    try {
+      String text;
+      final f = picked.files.first;
+      if (f.bytes != null) {
+        text = utf8.decode(f.bytes!);
+      } else if (f.path != null) {
+        text = await File(f.path!).readAsString();
+      } else {
+        return;
+      }
+      if (!mounted) return;
+      final state = SgfImport.import(text);
+      final tree = _treeFor(text, state);
+      setState(() {
+        _sgfText = text;
+        _loaded = state;
+        _tree = tree;
+        _path = _mainLinePath(tree);
+        _opponentStyle = null;
+        _resultLabel = _resultFromSgf(text);
+        _blackTotal = null;
+        _whiteTotal = null;
+        _report = null;
+      });
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('This file is not a supported Go SGF.')));
+      }
     }
-    if (!mounted) return;
-    final state = SgfImport.import(text);
-    final tree = _treeFor(text, state);
-    setState(() {
-      _sgfText = text;
-      _loaded = state;
-      _tree = tree;
-      _path = _mainLinePath(tree);
-      _opponentStyle = null;
-      _resultLabel = _resultFromSgf(text);
-      _blackTotal = null;
-      _whiteTotal = null;
-      _report = null;
-    });
   }
 
   String? _opponentStyleFromLabel(String? label) {
@@ -262,9 +274,15 @@ class _ReviewScreenState extends State<ReviewScreen> {
       _report = null;
     });
     try {
-      final report = await ReviewAnalyzer().analyze(loaded);
-      if (!mounted) return;
+      final report = await compute(
+          _analyzeGame, (game: loaded, initial: _tree?.initialState));
+      if (!mounted || !identical(_loaded, loaded)) return;
       setState(() => _report = report);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not analyze this game.')));
+      }
     } finally {
       if (mounted) setState(() => _analyzing = false);
     }
@@ -364,7 +382,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
 
     final tree = _tree;
-    final mainLineLength = tree == null ? loaded.history.length : _mainLineDepth(tree);
+    final mainLineLength =
+        tree == null ? loaded.history.length : _mainLineDepth(tree);
     final pathDepth = _index;
     final currentNode = _currentNode;
     final replayed = (tree != null && currentNode != null)
@@ -373,10 +392,9 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final moveNumbers = widget.settings.value.showMoveNumbers
         ? _moveNumberMap(replayed)
         : const <Point, int>{};
-    final fallbackScore =
-        (_blackTotal == null || _whiteTotal == null)
-            ? _matchingFallbackScore(loaded)
-            : null;
+    final fallbackScore = (_blackTotal == null || _whiteTotal == null)
+        ? _matchingFallbackScore(loaded)
+        : null;
     final reviewBlackTotal = _blackTotal ?? fallbackScore?.blackTotal;
     final reviewWhiteTotal = _whiteTotal ?? fallbackScore?.whiteTotal;
 
@@ -467,8 +485,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               IconButton(
-                  onPressed: _goToStart,
-                  icon: const Icon(Icons.first_page)),
+                  onPressed: _goToStart, icon: const Icon(Icons.first_page)),
               IconButton(
                 onPressed: _index > 0 ? _stepBack : null,
                 icon: const Icon(Icons.navigate_before),
@@ -480,12 +497,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 icon: const Icon(Icons.navigate_next),
               ),
               IconButton(
-                  onPressed: _goToEnd,
-                  icon: const Icon(Icons.last_page)),
+                  onPressed: _goToEnd, icon: const Icon(Icons.last_page)),
               IconButton(
                 tooltip: _exploreMode ? 'Stop exploring' : 'Try a move',
-                onPressed: () =>
-                    setState(() => _exploreMode = !_exploreMode),
+                onPressed: () => setState(() => _exploreMode = !_exploreMode),
                 icon: Icon(_exploreMode ? Icons.edit_off : Icons.edit),
                 color: _exploreMode ? scheme.primary : null,
               ),
@@ -627,8 +642,7 @@ class _ReviewSummaryCard extends StatelessWidget {
               ZenChip(text: config.ruleset.label),
               ZenChip(text: 'Komi ${config.komi.toStringAsFixed(1)}'),
               ZenChip(text: '$totalMoves moves'),
-              if (opponentStyle != null)
-                ZenChip(text: '$opponentStyle style'),
+              if (opponentStyle != null) ZenChip(text: '$opponentStyle style'),
             ],
           ),
         ],
@@ -670,8 +684,7 @@ class _ScoreTotal extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               label,
-              style:
-                  text.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
+              style: text.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -725,10 +738,9 @@ class _ReviewOutcome {
   }
 }
 
-String _formatPoints(double value) =>
-    value == value.roundToDouble()
-        ? value.toStringAsFixed(0)
-        : value.toStringAsFixed(1);
+String _formatPoints(double value) => value == value.roundToDouble()
+    ? value.toStringAsFixed(0)
+    : value.toStringAsFixed(1);
 
 class _AnalysisCard extends StatelessWidget {
   final ReviewReport? report;
@@ -796,8 +808,8 @@ class _AnalysisCard extends StatelessWidget {
       );
     }
     final values = r.moves.map((m) => m.blackLead).toList(growable: false);
-    final maxAbs = values.fold<double>(
-        10, (acc, v) => v.abs() > acc ? v.abs() : acc);
+    final maxAbs =
+        values.fold<double>(10, (acc, v) => v.abs() > acc ? v.abs() : acc);
     return ZenCard(
       container: scheme.surfaceContainerLow,
       child: Column(
@@ -806,8 +818,7 @@ class _AnalysisCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: Text('AI Review',
-                    style: text.headlineSmall),
+                child: Text('AI Review', style: text.headlineSmall),
               ),
               TextButton.icon(
                 onPressed: onAnalyze,
@@ -820,9 +831,7 @@ class _AnalysisCard extends StatelessWidget {
           Row(
             children: [
               _CountChip(
-                  label: 'Blunders',
-                  value: r.blunders,
-                  color: scheme.error),
+                  label: 'Blunders', value: r.blunders, color: scheme.error),
               const SizedBox(width: 8),
               _CountChip(
                   label: 'Mistakes',
@@ -843,8 +852,7 @@ class _AnalysisCard extends StatelessWidget {
           else
             Text(
               'Step through the moves to see per-move feedback.',
-              style:
-                  text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+              style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
             ),
         ],
       ),
@@ -880,8 +888,7 @@ class _CountChip extends StatelessWidget {
                 style: text.labelSmall
                     ?.copyWith(color: color, letterSpacing: 1.2)),
             const SizedBox(height: 2),
-            Text('$value',
-                style: text.headlineSmall?.copyWith(color: color)),
+            Text('$value', style: text.headlineSmall?.copyWith(color: color)),
           ],
         ),
       ),
@@ -908,8 +915,8 @@ class _CurrentMoveRow extends StatelessWidget {
             children: [
               Text(
                 '${move.player == StoneColor.black ? 'Black' : 'White'} · Move ${move.moveNumber}',
-                style: text.labelSmall
-                    ?.copyWith(color: scheme.onSurfaceVariant, letterSpacing: 1.1),
+                style: text.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant, letterSpacing: 1.1),
               ),
               const SizedBox(height: 2),
               Text(
@@ -941,8 +948,7 @@ class _CurrentMoveRow extends StatelessWidget {
     return '${move.pointsLost} points behind the AI top choice.';
   }
 
-  static Color _qualityColor(MoveQuality q, ColorScheme scheme) =>
-      switch (q) {
+  static Color _qualityColor(MoveQuality q, ColorScheme scheme) => switch (q) {
         MoveQuality.best => scheme.primary,
         MoveQuality.good => scheme.onSurfaceVariant,
         MoveQuality.inaccuracy => const Color(0xFFB87E2A),
@@ -1017,3 +1023,7 @@ class _VariationsCard extends StatelessWidget {
     return '$letter$row';
   }
 }
+
+Future<ReviewReport> _analyzeGame(
+        ({GameState game, GameState? initial}) input) =>
+    ReviewAnalyzer().analyze(input.game, initialState: input.initial);

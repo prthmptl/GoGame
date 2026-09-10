@@ -4,6 +4,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -67,6 +69,43 @@ func Load() (*Config, error) {
 	}
 
 	var problems []string
+	if c.Port < 1 || c.Port > 65535 {
+		problems = append(problems, "PORT must be between 1 and 65535")
+	}
+	if raw := os.Getenv("PORT"); raw != "" {
+		if _, err := strconv.Atoi(raw); err != nil {
+			problems = append(problems, "PORT must be an integer")
+		}
+	}
+	for _, key := range []string{"ACCESS_TOKEN_TTL", "REFRESH_TOKEN_TTL", "SHUTDOWN_GRACE"} {
+		if raw := os.Getenv(key); raw != "" {
+			d, err := time.ParseDuration(raw)
+			if err != nil || d <= 0 {
+				problems = append(problems, key+" must be a positive duration")
+			}
+		}
+	}
+	for _, raw := range strings.Split(os.Getenv("TRUSTED_PROXY_CIDRS"), ",") {
+		if strings.TrimSpace(raw) != "" {
+			if _, _, err := net.ParseCIDR(strings.TrimSpace(raw)); err != nil {
+				problems = append(problems, "invalid TRUSTED_PROXY_CIDRS")
+			}
+		}
+	}
+	if c.Env != EnvDev {
+		if string(c.JWTSecret) == "dev-insecure-signing-key-do-not-use-in-prod" {
+			problems = append(problems, "development JWT_SECRET is forbidden outside dev")
+		}
+		for _, key := range []string{"S3_BUCKET", "S3_ENDPOINT", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY"} {
+			if strings.TrimSpace(os.Getenv(key)) == "" {
+				problems = append(problems, key+" is required outside dev")
+			}
+		}
+		endpoint, err := url.Parse(os.Getenv("S3_ENDPOINT"))
+		if err != nil || endpoint.Scheme != "https" || endpoint.Host == "" {
+			problems = append(problems, "S3_ENDPOINT must be an HTTPS URL outside dev")
+		}
+	}
 	if c.DatabaseURL == "" {
 		problems = append(problems, "DATABASE_URL is required")
 	}

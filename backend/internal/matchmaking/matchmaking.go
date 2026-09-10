@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ type Status string
 
 const (
 	StatusQueued    Status = "queued"
+	StatusMatching  Status = "matching"
 	StatusMatched   Status = "matched"
 	StatusCancelled Status = "cancelled"
 )
@@ -56,8 +58,8 @@ type Ticket struct {
 // member of a queue is already compatible and pairing only has to consider
 // rating.
 func queueKey(r Request) string {
-	return fmt.Sprintf("matchmaking:%s:%d:%s:%s",
-		r.Mode, r.BoardSize, timeControlKey(r.TimeControl), r.Region)
+	return fmt.Sprintf("matchmaking:queue:%s:%d:%s:%s:%s",
+		r.Mode, r.BoardSize, r.Ruleset, timeControlKey(r.TimeControl), r.Region)
 }
 
 func timeControlKey(c clock.Control) string {
@@ -74,6 +76,8 @@ func timeControlKey(c clock.Control) string {
 		return fmt.Sprintf("absolute-%d", c.MainSeconds)
 	}
 }
+
+func userKey(id uuid.UUID) string { return "matchmaking:user:" + id.String() }
 
 func ticketKey(id uuid.UUID) string { return "matchmaking:ticket:" + id.String() }
 
@@ -103,6 +107,15 @@ func (s *Service) Enqueue(ctx context.Context, userID uuid.UUID, rating int, req
 		req.Ruleset = string(goban.Chinese)
 	}
 
+	if len(req.Region) > 32 || strings.ContainsAny(req.Region, ":*?[] ") {
+		return nil, errors.New("invalid region")
+	}
+	if err := goban.NewConfig(req.BoardSize, goban.Ruleset(req.Ruleset), 0).Validate(); err != nil {
+		return nil, err
+	}
+	if err := req.TimeControl.Validate(); err != nil {
+		return nil, err
+	}
 	t := &Ticket{
 		ID: uuid.New(), UserID: userID, Rating: rating, Request: req,
 		Status: StatusQueued, CreatedAt: time.Now().UTC(),
@@ -112,16 +125,24 @@ func (s *Service) Enqueue(ctx context.Context, userID uuid.UUID, rating int, req
 		return nil, err
 	}
 
-	pipe := s.rdb.TxPipeline()
-	pipe.Set(ctx, ticketKey(t.ID), raw, ticketTTL)
-	// Score is the creation time, so ZRANGE yields longest-waiting first.
-	pipe.ZAdd(ctx, queueKey(req), redis.Z{
-		Score:  float64(t.CreatedAt.UnixMilli()),
-		Member: t.ID.String(),
-	})
-	pipe.Expire(ctx, queueKey(req), ticketTTL)
-	if _, err := pipe.Exec(ctx); err != nil {
+	existing, err := s.rdb.Eval(ctx, `
+        local old = redis.call("GET", KEYS[3])
+        if old and redis.call("EXISTS", ARGV[5] .. old) == 1 then return old end
+        redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2])
+        redis.call("ZADD", KEYS[2], ARGV[3], ARGV[4])
+        redis.call("PEXPIRE", KEYS[2], ARGV[2])
+        redis.call("SET", KEYS[3], ARGV[4], "PX", ARGV[2])
+        return ARGV[4]`, []string{ticketKey(t.ID), queueKey(req), userKey(userID)},
+		string(raw), ticketTTL.Milliseconds(), t.CreatedAt.UnixMilli(), t.ID.String(), "matchmaking:ticket:").Text()
+	if err != nil {
 		return nil, fmt.Errorf("enqueue: %w", err)
+	}
+	if existing != t.ID.String() {
+		id, err := uuid.Parse(existing)
+		if err != nil {
+			return nil, err
+		}
+		return s.Get(ctx, id)
 	}
 	return t, nil
 }
@@ -152,17 +173,27 @@ func (s *Service) Cancel(ctx context.Context, id uuid.UUID, userID uuid.UUID) er
 	if t.UserID != userID {
 		return ErrTicketNotFound
 	}
-	if t.Status == StatusMatched {
+	if t.Status == StatusMatched || t.Status == StatusMatching {
 		return errors.New("matchmaking: already matched")
 	}
 	t.Status = StatusCancelled
 	raw, _ := json.Marshal(t)
-
-	pipe := s.rdb.TxPipeline()
-	pipe.ZRem(ctx, queueKey(t.Request), t.ID.String())
-	pipe.Set(ctx, ticketKey(t.ID), raw, time.Minute)
-	_, err = pipe.Exec(ctx)
-	return err
+	n, err := s.rdb.Eval(ctx, `
+        local raw = redis.call("GET", KEYS[1])
+        if not raw then return 0 end
+        local ticket = cjson.decode(raw)
+        if ticket.status ~= "queued" and ticket.status ~= "cancelled" then return 0 end
+        redis.call("ZREM", KEYS[2], ARGV[1])
+        redis.call("SET", KEYS[1], ARGV[2], "EX", 60)
+        if redis.call("GET", KEYS[3]) == ARGV[1] then redis.call("DEL", KEYS[3]) end
+        return 1`, []string{ticketKey(t.ID), queueKey(t.Request), userKey(userID)}, t.ID.String(), string(raw)).Int()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return errors.New("matchmaking: ticket already claimed")
+	}
+	return nil
 }
 
 // ratingWindow implements D4's expansion schedule: ±100 for the first 15s,
@@ -184,24 +215,30 @@ func ratingWindow(waited time.Duration) int {
 // PairOnce scans every active queue and pairs whoever it can. The worker runs
 // this every 2 seconds, as D4 specifies.
 func (s *Service) PairOnce(ctx context.Context) (int, error) {
-	keys, err := s.rdb.Keys(ctx, "matchmaking:*:*:*:*").Result()
-	if err != nil {
-		return 0, fmt.Errorf("scan queues: %w", err)
+	if s.Pair == nil {
+		return 0, nil
 	}
 	paired := 0
-	for _, key := range keys {
-		n, err := s.pairQueue(ctx, key)
+	iter := s.rdb.Scan(ctx, 0, "matchmaking:queue:*", 100).Iterator()
+	for iter.Next(ctx) {
+		n, err := s.pairQueue(ctx, iter.Val())
 		if err != nil {
 			return paired, err
 		}
 		paired += n
+	}
+	if err := iter.Err(); err != nil {
+		return paired, fmt.Errorf("scan queues: %w", err)
 	}
 	return paired, nil
 }
 
 func (s *Service) pairQueue(ctx context.Context, key string) (int, error) {
 	ids, err := s.rdb.ZRange(ctx, key, 0, 199).Result()
-	if err != nil || len(ids) < 2 {
+	if err != nil {
+		return 0, err
+	}
+	if len(ids) < 2 {
 		return 0, nil
 	}
 
@@ -214,7 +251,10 @@ func (s *Service) pairQueue(ctx context.Context, key string) (int, error) {
 			continue
 		}
 		t, err := s.Get(ctx, id)
-		if err != nil || t.Status != StatusQueued {
+		if err != nil && !errors.Is(err, ErrTicketNotFound) {
+			return 0, err
+		}
+		if errors.Is(err, ErrTicketNotFound) || t.Status != StatusQueued {
 			s.rdb.ZRem(ctx, key, raw)
 			continue
 		}
@@ -270,29 +310,47 @@ func (s *Service) pairQueue(ctx context.Context, key string) (int, error) {
 // ZRem happens first: if game creation fails, the players are re-queued by
 // their clients rather than being handed a game that does not exist.
 func (s *Service) commitPair(ctx context.Context, key string, a, b Ticket) error {
-	removed, err := s.rdb.ZRem(ctx, key, a.ID.String(), b.ID.String()).Result()
-	if err != nil {
-		return err
-	}
-	if removed != 2 {
-		// Another worker claimed one of them first.
-		return errors.New("matchmaking: tickets already claimed")
-	}
 	if s.Pair == nil {
 		return errors.New("matchmaking: no pair function configured")
 	}
-	gameID, err := s.Pair(ctx, a, b)
+	claimed, err := s.rdb.Eval(ctx, `
+        if not redis.call("ZSCORE", KEYS[1], ARGV[1]) or not redis.call("ZSCORE", KEYS[1], ARGV[2]) then return 0 end
+        local a, b = redis.call("GET", KEYS[2]), redis.call("GET", KEYS[3])
+        if not a or not b then return 0 end
+        a, b = cjson.decode(a), cjson.decode(b)
+        if a.status ~= "queued" or b.status ~= "queued" then return 0 end
+        a.status, b.status = "matching", "matching"
+        redis.call("SET", KEYS[2], cjson.encode(a), "KEEPTTL")
+        redis.call("SET", KEYS[3], cjson.encode(b), "KEEPTTL")
+        redis.call("ZREM", KEYS[1], ARGV[1], ARGV[2])
+        return 1`, []string{key, ticketKey(a.ID), ticketKey(b.ID)}, a.ID.String(), b.ID.String()).Int()
 	if err != nil {
 		return err
 	}
-	for _, t := range []Ticket{a, b} {
-		t.Status = StatusMatched
-		t.GameID = &gameID
-		raw, _ := json.Marshal(t)
-		// Keep matched tickets briefly so a polling client can read the result.
-		s.rdb.Set(ctx, ticketKey(t.ID), raw, 5*time.Minute)
+	if claimed != 1 {
+		return errors.New("matchmaking: tickets already claimed")
 	}
-	return nil
+	gameID, pairErr := s.Pair(ctx, a, b)
+	// Finish the reservation even if the initiating request was cancelled.
+	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	pipe := s.rdb.TxPipeline()
+	for _, t := range []Ticket{a, b} {
+		if pairErr != nil {
+			t.Status = StatusQueued
+			pipe.ZAdd(finishCtx, key, redis.Z{Score: float64(t.CreatedAt.UnixMilli()), Member: t.ID.String()})
+			pipe.Expire(finishCtx, key, ticketTTL)
+		} else {
+			t.Status, t.GameID = StatusMatched, &gameID
+			pipe.Del(finishCtx, userKey(t.UserID))
+		}
+		raw, _ := json.Marshal(t)
+		pipe.Set(finishCtx, ticketKey(t.ID), raw, ticketTTL)
+	}
+	if _, err := pipe.Exec(finishCtx); err != nil {
+		return err
+	}
+	return pairErr
 }
 
 func abs(n int) int {

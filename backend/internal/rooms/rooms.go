@@ -214,8 +214,12 @@ func (s *Service) Players(ctx context.Context, roomID uuid.UUID) ([]uuid.UUID, e
 
 // Start attaches a created game to the room and closes it to new players.
 func (s *Service) Start(ctx context.Context, roomID, gameID uuid.UUID) error {
-	_, err := s.db.Exec(ctx,
-		`UPDATE rooms SET game_id = $2, status = 'started' WHERE id = $1`, roomID, gameID)
+	tag, err := s.db.Exec(ctx,
+		`UPDATE rooms SET game_id = $2, status = 'started' WHERE id = $1
+          AND status='open' AND game_id IS NULL AND expires_at > now()`, roomID, gameID)
+	if err == nil && tag.RowsAffected() != 1 {
+		return ErrClosed
+	}
 	return err
 }
 
